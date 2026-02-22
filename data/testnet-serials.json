@@ -1,0 +1,29 @@
+{
+  "SMJ-4656RY-MA73": {
+    "chainId": 80002,
+    "network": "Polygon Amoy",
+    "contract": "0x74A3Ee6061c6619c3Ee3B6BC21344Aae8C2B735B",
+    "tokenId": 1,
+    "mintTx": "0x0bae32cb1c486c83ba808c1d6f470c2cb781b8055dc8daea3b5dce576e71218e",
+    "redeemTx": "0x0f7ba6f167f0f3ef45b1f190a3a41ca4729b592ee2f57976eecb2b9878006317"
+  },
+  "FWK-3526CD-ML25": {
+    "chainId": 80002,
+    "network": "Polygon Amoy",
+    "contract": "0x74A3Ee6061c6619c3Ee3B6BC21344Aae8C2B735B",
+    "tokenId": 2,
+    "mintTx": "0xde3650c200919aff0a60c9a39fe1ef61b2e54d2ef84d473479599c62385c3fcc",
+    "transferTx": "0x39a617a527aa168ecf4f5dcfab01ff4ca823320c9e09b19afb1d2bd9ca058644",
+    "redeemTx": "0x244c6552b65653e46ec8bdd645bf11c92575d5569584b434661127b14eaf9a4f"
+  },
+  "PDB-7968ND-KR54": {
+    "chainId": 80002,
+    "network": "Polygon Amoy",
+    "contract": "0x74A3Ee6061c6619c3Ee3B6BC21344Aae8C2B735B",
+    "tokenId": 3,
+    "mintTx": "0x397a8b9f5e3d48474b35b639d1b2b711b051eccaa84b176e632d83da5eb32699",
+    "transferTx": "0x89a47a38362938a007ffa0c9981df6001f2e82aa36e1e1a8e6ea6762bc5b5b0d",
+    "voidTx": "0x8e2480ac6372f55e2fb39152616bb9de1c7c3c0dfeb2828d88b6627055b29437",
+    "claimableAt": 1771656447
+  }
+}
