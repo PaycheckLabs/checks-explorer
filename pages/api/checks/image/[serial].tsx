@@ -66,18 +66,8 @@ export default async function handler(req: NextRequest) {
     const fonts =
       kanitRegular && kanitMedium
         ? [
-            {
-              name: "Kanit",
-              data: kanitRegular,
-              weight: 400 as const,
-              style: "normal" as const,
-            },
-            {
-              name: "Kanit",
-              data: kanitMedium,
-              weight: 500 as const,
-              style: "normal" as const,
-            },
+            { name: "Kanit", data: kanitRegular, weight: 400 as const, style: "normal" as const },
+            { name: "Kanit", data: kanitMedium, weight: 500 as const, style: "normal" as const },
           ]
         : undefined;
 
@@ -88,11 +78,13 @@ export default async function handler(req: NextRequest) {
     const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
     const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
 
+    // Header placeholders (M1)
     const tokenName = "Mock USD";
     const tokenSymbol = "mUSD";
     const amountNumber = "100";
     const titleText = "Testnet Payment Check";
 
+    // Body values
     const typeValue = "Payment";
     const sentDateValue = "Testnet";
     const senderValue = shortAddr(DEV_SENDER);
@@ -100,23 +92,38 @@ export default async function handler(req: NextRequest) {
     const conditionsValue =
       record?.claimableAt && record.claimableAt > 0 ? "Postdated" : "None";
 
+    // ===== Layout constants (tune these only) =====
     const PAD_X = 84;
 
-    const TOKEN_ROW_Y = 46;
-    const TITLE_Y = 132;
+    // Header row
+    const TOKEN_ROW_Y = 44;
+    const TOKEN_ICON_SIZE = 56;
 
+    // Title
+    const TITLE_Y = 128;
+
+    // Values column
     const VALUE_X = 430;
-    const TYPE_Y = 360;
-    const SENT_Y = 424;
-    const SENDER_Y = 488;
-    const RECEIVER_Y = 552;
-    const CONDITIONS_Y = 616;
+    const TYPE_Y = 356;
+    const SENT_Y = 420;
+    const SENDER_Y = 484;
+    const RECEIVER_Y = 548;
+    const CONDITIONS_Y = 612;
 
+    // QR
     const QR_SIZE = 280;
     const QR_X = 1200 - PAD_X - QR_SIZE;
     const QR_Y = 360;
 
+    // Footer serial
     const SERIAL_BOTTOM_PAD = 54;
+
+    // ===== Typography (scaled closer to Example) =====
+    const TOKEN_NAME_SIZE = 22;     // was 18
+    const AMOUNT_SIZE = 40;         // was 22
+    const TITLE_SIZE = 52;          // was 24
+    const VALUE_SIZE = 24;          // was 16
+    const SERIAL_SIZE = 22;         // was 16
 
     return new ImageResponse(
       (
@@ -126,7 +133,7 @@ export default async function handler(req: NextRequest) {
             height: 800,
             position: "relative",
             background: "#0b1220",
-            display: "flex", // REQUIRED by @vercel/og when multiple children exist
+            display: "flex",
           }}
         >
           <img
@@ -142,90 +149,91 @@ export default async function handler(req: NextRequest) {
             }}
           />
 
+          {/* Token icon */}
           <div
             style={{
               position: "absolute",
               left: PAD_X,
               top: TOKEN_ROW_Y,
-              width: 54,
-              height: 54,
+              width: TOKEN_ICON_SIZE,
+              height: TOKEN_ICON_SIZE,
               borderRadius: 999,
               background: "rgba(255,255,255,0.16)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               color: "rgba(255,255,255,0.92)",
-              fontFamily:
-                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
-              fontSize: 22,
+              fontSize: 24,
             }}
           >
-            {tokenSymbol[0]}
+            {/* Nudge down slightly so Kanit centers visually */}
+            <span style={{ transform: "translateY(1px)" }}>{tokenSymbol[0]}</span>
           </div>
 
+          {/* Token name */}
           <div
             style={{
               position: "absolute",
-              left: PAD_X + 72,
-              top: TOKEN_ROW_Y + 10,
+              left: PAD_X + TOKEN_ICON_SIZE + 18,
+              top: TOKEN_ROW_Y + 14,
               color: "rgba(255,255,255,0.92)",
-              fontFamily:
-                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 400,
-              fontSize: 18,
+              fontSize: TOKEN_NAME_SIZE,
             }}
           >
             {tokenName}
           </div>
 
+          {/* Amount (bigger, symbol dimmer) */}
           <div
             style={{
               position: "absolute",
               right: PAD_X,
               top: TOKEN_ROW_Y + 6,
               display: "flex",
-              gap: 10,
+              gap: 12,
               alignItems: "baseline",
-              fontFamily:
-                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
-              fontSize: 22,
+              fontSize: AMOUNT_SIZE,
               color: "rgba(255,255,255,0.92)",
             }}
           >
             <span>{amountNumber}</span>
-            <span style={{ opacity: 0.78 }}>{tokenSymbol}</span>
+            <span style={{ opacity: 0.78, fontWeight: 500 }}>{tokenSymbol}</span>
           </div>
 
+          {/* Title (much larger, aligned above Minted line) */}
           <div
             style={{
               position: "absolute",
               left: PAD_X,
               top: TITLE_Y,
               color: "rgba(255,255,255,0.92)",
-              fontFamily:
-                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
-              fontSize: 24,
+              fontSize: TITLE_SIZE,
             }}
           >
             {titleText}
           </div>
 
+          {/* Values (bigger) */}
           <div
             style={{
               position: "absolute",
               left: VALUE_X,
               top: 0,
               color: "rgba(255,255,255,0.92)",
-              fontFamily:
-                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
-              fontSize: 16,
-              lineHeight: "24px",
+              fontSize: VALUE_SIZE,
+              lineHeight: "32px",
               letterSpacing: "-0.1px",
-              display: "flex", // safe: more than one child
+              display: "flex",
             }}
           >
             <div style={{ position: "absolute", top: TYPE_Y }}>{typeValue}</div>
@@ -235,6 +243,7 @@ export default async function handler(req: NextRequest) {
             <div style={{ position: "absolute", top: CONDITIONS_Y }}>{conditionsValue}</div>
           </div>
 
+          {/* QR */}
           <div
             style={{
               position: "absolute",
@@ -253,16 +262,16 @@ export default async function handler(req: NextRequest) {
             <img src={qrDataUrl} width={QR_SIZE - 28} height={QR_SIZE - 28} />
           </div>
 
+          {/* Serial (bigger, match footer feel) */}
           <div
             style={{
               position: "absolute",
               right: PAD_X,
               bottom: SERIAL_BOTTOM_PAD,
               color: "rgba(255,255,255,0.86)",
-              fontFamily:
-                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
-              fontSize: 16,
+              fontSize: SERIAL_SIZE,
               letterSpacing: "-0.1px",
             }}
           >
