@@ -1,6 +1,6 @@
 import { ImageResponse } from "@vercel/og";
 import type { NextRequest } from "next/server";
-import QRCode from "qrcode-generator-es6";
+import qrcode from "qrcode-generator-es6";
 
 import serials from "../../../../data/testnet-serials.json";
 import { isValidSerialFormat, normalizeSerial } from "../../../../lib/serial";
@@ -42,7 +42,7 @@ export default async function handler(req: NextRequest) {
   const pageUrl = `https://explorer.checks.xyz/testnet/${serial}`;
 
   // QR -> SVG -> data url (pure JS, Edge friendly)
-  const qr = new QRCode(0, "M");
+  const qr = new qrcode(0, "M");
   qr.addData(pageUrl);
   qr.make();
   const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
