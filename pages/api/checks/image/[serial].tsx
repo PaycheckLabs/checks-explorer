@@ -56,10 +56,8 @@ export default async function handler(req: NextRequest) {
     const record =
       (serials as Record<string, SerialRecord | undefined>)[serial] || null;
 
-    // Assets are referenced directly, no base64 conversion
     const bgUrl = `${origin}/check-bg.png`;
 
-    // Load fonts (optional)
     const [kanitRegular, kanitMedium] = await Promise.all([
       fetchFontSafe(`${origin}/fonts/Kanit-Regular.ttf`),
       fetchFontSafe(`${origin}/fonts/Kanit-Medium.ttf`),
@@ -68,12 +66,21 @@ export default async function handler(req: NextRequest) {
     const fonts =
       kanitRegular && kanitMedium
         ? [
-            { name: "Kanit", data: kanitRegular, weight: 400 as const, style: "normal" as const },
-            { name: "Kanit", data: kanitMedium, weight: 500 as const, style: "normal" as const },
+            {
+              name: "Kanit",
+              data: kanitRegular,
+              weight: 400 as const,
+              style: "normal" as const,
+            },
+            {
+              name: "Kanit",
+              data: kanitMedium,
+              weight: 500 as const,
+              style: "normal" as const,
+            },
           ]
         : undefined;
 
-    // QR points to serial page
     const pageUrl = `${origin}/testnet/${serial}`;
     const qr = new qrcode(0, "M");
     qr.addData(pageUrl);
@@ -81,13 +88,11 @@ export default async function handler(req: NextRequest) {
     const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
     const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
 
-    // Header placeholders for M1
     const tokenName = "Mock USD";
     const tokenSymbol = "mUSD";
     const amountNumber = "100";
     const titleText = "Testnet Payment Check";
 
-    // Body values
     const typeValue = "Payment";
     const sentDateValue = "Testnet";
     const senderValue = shortAddr(DEV_SENDER);
@@ -95,7 +100,6 @@ export default async function handler(req: NextRequest) {
     const conditionsValue =
       record?.claimableAt && record.claimableAt > 0 ? "Postdated" : "None";
 
-    // Layout constants (tune later)
     const PAD_X = 84;
 
     const TOKEN_ROW_Y = 46;
@@ -122,9 +126,9 @@ export default async function handler(req: NextRequest) {
             height: 800,
             position: "relative",
             background: "#0b1220",
+            display: "flex", // REQUIRED by @vercel/og when multiple children exist
           }}
         >
-          {/* Background template */}
           <img
             src={bgUrl}
             width={1200}
@@ -138,7 +142,6 @@ export default async function handler(req: NextRequest) {
             }}
           />
 
-          {/* Token icon placeholder */}
           <div
             style={{
               position: "absolute",
@@ -152,7 +155,8 @@ export default async function handler(req: NextRequest) {
               alignItems: "center",
               justifyContent: "center",
               color: "rgba(255,255,255,0.92)",
-              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily:
+                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
               fontSize: 22,
             }}
@@ -160,14 +164,14 @@ export default async function handler(req: NextRequest) {
             {tokenSymbol[0]}
           </div>
 
-          {/* Token name (Kanit Regular 18) */}
           <div
             style={{
               position: "absolute",
               left: PAD_X + 72,
               top: TOKEN_ROW_Y + 10,
               color: "rgba(255,255,255,0.92)",
-              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily:
+                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 400,
               fontSize: 18,
             }}
@@ -175,7 +179,6 @@ export default async function handler(req: NextRequest) {
             {tokenName}
           </div>
 
-          {/* Amount (Kanit Medium 22; symbol dimmer) */}
           <div
             style={{
               position: "absolute",
@@ -184,7 +187,8 @@ export default async function handler(req: NextRequest) {
               display: "flex",
               gap: 10,
               alignItems: "baseline",
-              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily:
+                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
               fontSize: 22,
               color: "rgba(255,255,255,0.92)",
@@ -194,14 +198,14 @@ export default async function handler(req: NextRequest) {
             <span style={{ opacity: 0.78 }}>{tokenSymbol}</span>
           </div>
 
-          {/* Title (Kanit Medium 24) */}
           <div
             style={{
               position: "absolute",
               left: PAD_X,
               top: TITLE_Y,
               color: "rgba(255,255,255,0.92)",
-              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily:
+                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
               fontSize: 24,
             }}
@@ -209,18 +213,19 @@ export default async function handler(req: NextRequest) {
             {titleText}
           </div>
 
-          {/* Values column (Kanit Medium 16) */}
           <div
             style={{
               position: "absolute",
               left: VALUE_X,
               top: 0,
               color: "rgba(255,255,255,0.92)",
-              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily:
+                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
               fontSize: 16,
               lineHeight: "24px",
               letterSpacing: "-0.1px",
+              display: "flex", // safe: more than one child
             }}
           >
             <div style={{ position: "absolute", top: TYPE_Y }}>{typeValue}</div>
@@ -230,7 +235,6 @@ export default async function handler(req: NextRequest) {
             <div style={{ position: "absolute", top: CONDITIONS_Y }}>{conditionsValue}</div>
           </div>
 
-          {/* QR */}
           <div
             style={{
               position: "absolute",
@@ -249,14 +253,14 @@ export default async function handler(req: NextRequest) {
             <img src={qrDataUrl} width={QR_SIZE - 28} height={QR_SIZE - 28} />
           </div>
 
-          {/* Serial */}
           <div
             style={{
               position: "absolute",
               right: PAD_X,
               bottom: SERIAL_BOTTOM_PAD,
               color: "rgba(255,255,255,0.86)",
-              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily:
+                "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               fontWeight: 500,
               fontSize: 16,
               letterSpacing: "-0.1px",
@@ -276,7 +280,6 @@ export default async function handler(req: NextRequest) {
       }
     );
   } catch {
-    // Absolute failsafe: always return a PNG so the browser never shows "contains errors"
     return new ImageResponse(
       (
         <div
@@ -294,7 +297,7 @@ export default async function handler(req: NextRequest) {
             textAlign: "center",
           }}
         >
-          Checks Explorer image error. Open Vercel logs for /api/checks/image to see the stack trace.
+          Checks Explorer image error. Check Vercel logs for /api/checks/image.
         </div>
       ),
       { width: 1200, height: 800 }
