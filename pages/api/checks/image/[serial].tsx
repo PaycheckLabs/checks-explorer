@@ -30,11 +30,29 @@ function shortAddr(addr: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-export default async function handler(req: NextRequest) {
-  const url = new URL(req.url);
-  const origin = url.origin;
+async function fetchArrayBufferSafe(url: string): Promise<ArrayBuffer | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.arrayBuffer();
+  } catch {
+    return null;
+  }
+}
 
-  const last = url.pathname.split("/").pop() || "";
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  // Edge-safe base64 (no Buffer)
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+export default async function handler(req: NextRequest) {
+  const reqUrl = new URL(req.url);
+  const origin = reqUrl.origin;
+
+  const last = reqUrl.pathname.split("/").pop() || "";
   const rawSerial = last.replace(/\.png$/i, "");
   const serial = normalizeSerial(rawSerial);
 
@@ -45,35 +63,39 @@ export default async function handler(req: NextRequest) {
   const record =
     (serials as Record<string, SerialRecord | undefined>)[serial] || null;
 
-  // Load Kanit fonts from /public/fonts (required for OG rendering)
+  // Load assets safely (never crash if missing)
+  const bgBuf = await fetchArrayBufferSafe(`${origin}/check-bg.png`);
+  const bgDataUrl = bgBuf
+    ? `data:image/png;base64,${arrayBufferToBase64(bgBuf)}`
+    : null;
+
   const [kanitRegular, kanitMedium] = await Promise.all([
-    fetch(new URL("/fonts/Kanit-Regular.ttf", url)).then((r) => r.arrayBuffer()),
-    fetch(new URL("/fonts/Kanit-Medium.ttf", url)).then((r) => r.arrayBuffer()),
+    fetchArrayBufferSafe(`${origin}/fonts/Kanit-Regular.ttf`),
+    fetchArrayBufferSafe(`${origin}/fonts/Kanit-Medium.ttf`),
   ]);
 
-  // QR points to the serial page
+  const fonts =
+    kanitRegular && kanitMedium
+      ? [
+          { name: "Kanit", data: kanitRegular, weight: 400 as const, style: "normal" as const },
+          { name: "Kanit", data: kanitMedium, weight: 500 as const, style: "normal" as const },
+        ]
+      : undefined;
+
+  // QR points to serial page (origin-aware)
   const pageUrl = `${origin}/testnet/${serial}`;
-
-  // Base template background
-  const bgUrl = `${origin}/check-bg.png`;
-
-  // QR -> SVG -> data url
   const qr = new qrcode(0, "M");
   qr.addData(pageUrl);
   qr.make();
   const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
   const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
 
-  // Header placeholders for M1 (data model unchanged)
+  // Text values (M1 placeholders)
   const tokenName = "Mock USD";
   const tokenSymbol = "mUSD";
   const amountNumber = "100";
-  const amountText = `${amountNumber} ${tokenSymbol}`;
-
-  // Title
   const titleText = "Testnet Payment Check";
 
-  // Body values
   const typeValue = "Payment";
   const sentDateValue = "Testnet";
   const senderValue = shortAddr(DEV_SENDER);
@@ -81,15 +103,14 @@ export default async function handler(req: NextRequest) {
   const conditionsValue =
     record?.claimableAt && record.claimableAt > 0 ? "Postdated" : "None";
 
-  // Layout constants (tune these only)
+  // Layout constants
   const PAD_X = 84;
 
-  // Header positions
+  // Header
   const TOKEN_ROW_Y = 46;
   const TITLE_Y = 132;
-  const SUBTITLE_Y = 210;
 
-  // Table values column
+  // Values column (tune these)
   const VALUE_X = 430;
   const TYPE_Y = 360;
   const SENT_Y = 424;
@@ -103,188 +124,195 @@ export default async function handler(req: NextRequest) {
   const QR_Y = 360;
 
   // Footer serial
-  const SERIAL_RIGHT_PAD = PAD_X;
   const SERIAL_BOTTOM_PAD = 54;
 
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: 1200,
-          height: 800,
-          position: "relative",
-          background: "#0b1220",
-        }}
-      >
-        {/* Background template */}
-        <img
-          src={bgUrl}
-          width={1200}
-          height={800}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-          }}
-        />
-
-        {/* Token icon placeholder */}
+  try {
+    return new ImageResponse(
+      (
         <div
           style={{
-            position: "absolute",
-            left: PAD_X,
-            top: TOKEN_ROW_Y,
-            width: 54,
-            height: 54,
-            borderRadius: 999,
-            background: "rgba(255,255,255,0.16)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "rgba(255,255,255,0.92)",
-            fontFamily: "Kanit",
-            fontWeight: 500,
-            fontSize: 22,
+            width: 1200,
+            height: 800,
+            position: "relative",
+            background: "#0b1220",
           }}
         >
-          {tokenSymbol[0]}
-        </div>
+          {/* Background template (only if available) */}
+          {bgDataUrl ? (
+            <img
+              src={bgDataUrl}
+              width={1200}
+              height={800}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
+          ) : null}
 
-        {/* Token name (Kanit Regular 18) */}
-        <div
-          style={{
-            position: "absolute",
-            left: PAD_X + 72,
-            top: TOKEN_ROW_Y + 10,
-            color: "rgba(255,255,255,0.92)",
-            fontFamily: "Kanit",
-            fontWeight: 400,
-            fontSize: 18,
-          }}
-        >
-          {tokenName}
-        </div>
+          {/* Token icon */}
+          <div
+            style={{
+              position: "absolute",
+              left: PAD_X,
+              top: TOKEN_ROW_Y,
+              width: 54,
+              height: 54,
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.16)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "rgba(255,255,255,0.92)",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontWeight: 500,
+              fontSize: 22,
+            }}
+          >
+            {tokenSymbol[0]}
+          </div>
 
-        {/* Amount (Kanit Medium 22, with token symbol slightly dimmer) */}
-        <div
-          style={{
-            position: "absolute",
-            right: PAD_X,
-            top: TOKEN_ROW_Y + 6,
-            display: "flex",
-            gap: 10,
-            alignItems: "baseline",
-            fontFamily: "Kanit",
-            fontWeight: 500,
-            fontSize: 22,
-            color: "rgba(255,255,255,0.92)",
-          }}
-        >
-          <span>{amountNumber}</span>
-          <span style={{ opacity: 0.78 }}>{tokenSymbol}</span>
-        </div>
+          {/* Token name (Kanit Regular 18) */}
+          <div
+            style={{
+              position: "absolute",
+              left: PAD_X + 72,
+              top: TOKEN_ROW_Y + 10,
+              color: "rgba(255,255,255,0.92)",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontWeight: 400,
+              fontSize: 18,
+            }}
+          >
+            {tokenName}
+          </div>
 
-        {/* Title (Kanit Medium 24) */}
-        <div
-          style={{
-            position: "absolute",
-            left: PAD_X,
-            top: TITLE_Y,
-            color: "rgba(255,255,255,0.92)",
-            fontFamily: "Kanit",
-            fontWeight: 500,
-            fontSize: 24,
-          }}
-        >
-          {titleText}
-        </div>
+          {/* Amount (Kanit Medium 22; symbol dimmer) */}
+          <div
+            style={{
+              position: "absolute",
+              right: PAD_X,
+              top: TOKEN_ROW_Y + 6,
+              display: "flex",
+              gap: 10,
+              alignItems: "baseline",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontWeight: 500,
+              fontSize: 22,
+              color: "rgba(255,255,255,0.92)",
+            }}
+          >
+            <span>{amountNumber}</span>
+            <span style={{ opacity: 0.78 }}>{tokenSymbol}</span>
+          </div>
 
-        {/* Subtitle line (keep this light) */}
-        <div
-          style={{
-            position: "absolute",
-            left: PAD_X,
-            top: SUBTITLE_Y,
-            color: "rgba(255,255,255,0.82)",
-            fontFamily: "Kanit",
-            fontWeight: 400,
-            fontSize: 16,
-          }}
-        >
-          Minted on Polygon Amoy
-        </div>
+          {/* Title (Kanit Medium 24) */}
+          <div
+            style={{
+              position: "absolute",
+              left: PAD_X,
+              top: TITLE_Y,
+              color: "rgba(255,255,255,0.92)",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontWeight: 500,
+              fontSize: 24,
+            }}
+          >
+            {titleText}
+          </div>
 
-        {/* Values column (Kanit Medium 16) */}
-        <div
-          style={{
-            position: "absolute",
-            left: VALUE_X,
-            top: 0,
-            color: "rgba(255,255,255,0.92)",
-            fontFamily: "Kanit",
-            fontWeight: 500,
-            fontSize: 16,
-            lineHeight: "24px",
-            letterSpacing: "-0.1px",
-          }}
-        >
-          <div style={{ position: "absolute", top: TYPE_Y }}>{typeValue}</div>
-          <div style={{ position: "absolute", top: SENT_Y }}>{sentDateValue}</div>
-          <div style={{ position: "absolute", top: SENDER_Y }}>{senderValue}</div>
-          <div style={{ position: "absolute", top: RECEIVER_Y }}>{receiverValue}</div>
-          <div style={{ position: "absolute", top: CONDITIONS_Y }}>
-            {conditionsValue}
+          {/* Values (Kanit Medium 16) */}
+          <div
+            style={{
+              position: "absolute",
+              left: VALUE_X,
+              top: 0,
+              color: "rgba(255,255,255,0.92)",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontWeight: 500,
+              fontSize: 16,
+              lineHeight: "24px",
+              letterSpacing: "-0.1px",
+            }}
+          >
+            <div style={{ position: "absolute", top: TYPE_Y }}>{typeValue}</div>
+            <div style={{ position: "absolute", top: SENT_Y }}>{sentDateValue}</div>
+            <div style={{ position: "absolute", top: SENDER_Y }}>{senderValue}</div>
+            <div style={{ position: "absolute", top: RECEIVER_Y }}>{receiverValue}</div>
+            <div style={{ position: "absolute", top: CONDITIONS_Y }}>{conditionsValue}</div>
+          </div>
+
+          {/* QR */}
+          <div
+            style={{
+              position: "absolute",
+              left: QR_X,
+              top: QR_Y,
+              width: QR_SIZE,
+              height: QR_SIZE,
+              background: "#ffffff",
+              borderRadius: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 14,
+            }}
+          >
+            <img src={qrDataUrl} width={QR_SIZE - 28} height={QR_SIZE - 28} />
+          </div>
+
+          {/* Serial */}
+          <div
+            style={{
+              position: "absolute",
+              right: PAD_X,
+              bottom: SERIAL_BOTTOM_PAD,
+              color: "rgba(255,255,255,0.86)",
+              fontFamily: "Kanit, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontWeight: 500,
+              fontSize: 16,
+              letterSpacing: "-0.1px",
+            }}
+          >
+            {serial}
           </div>
         </div>
-
-        {/* QR card */}
+      ),
+      {
+        width: 1200,
+        height: 800,
+        headers: {
+          "cache-control": "public, no-transform, max-age=600",
+        },
+        ...(fonts ? { fonts } : {}),
+      }
+    );
+  } catch (e) {
+    // Failsafe: always return a PNG (even if something unexpected breaks)
+    return new ImageResponse(
+      (
         <div
           style={{
-            position: "absolute",
-            left: QR_X,
-            top: QR_Y,
-            width: QR_SIZE,
-            height: QR_SIZE,
-            background: "#ffffff",
-            borderRadius: 16,
+            width: 1200,
+            height: 800,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: 14,
+            background: "#0b1220",
+            color: "#ffffff",
+            fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+            fontSize: 26,
+            padding: 40,
+            textAlign: "center",
           }}
         >
-          <img src={qrDataUrl} width={QR_SIZE - 28} height={QR_SIZE - 28} />
+          Checks Explorer image render error. Verify /check-bg.png and /fonts/Kanit-*.ttf are reachable.
         </div>
-
-        {/* Serial (Kanit Medium 16, aligned with footer area) */}
-        <div
-          style={{
-            position: "absolute",
-            right: SERIAL_RIGHT_PAD,
-            bottom: SERIAL_BOTTOM_PAD,
-            color: "rgba(255,255,255,0.86)",
-            fontFamily: "Kanit",
-            fontWeight: 500,
-            fontSize: 16,
-            letterSpacing: "-0.1px",
-          }}
-        >
-          {serial}
-        </div>
-      </div>
-    ),
-    {
-      width: 1200,
-      height: 800,
-      headers: {
-        "cache-control": "public, no-transform, max-age=600",
-      },
-      fonts: [
-        { name: "Kanit", data: kanitRegular, weight: 400, style: "normal" },
-        { name: "Kanit", data: kanitMedium, weight: 500, style: "normal" },
-      ],
-    }
-  );
+      ),
+      { width: 1200, height: 800 }
+    );
+  }
 }
