@@ -26,9 +26,38 @@ function shortAddr(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
+function shortHash(hash?: string): string {
+  if (!hash) return "";
+  return `${hash.slice(0, 10)}…${hash.slice(-8)}`;
+}
+
+function statusFromRecord(record: SerialRecord | null): string {
+  if (!record) return "UNKNOWN";
+  if (record.voidTx) return "VOIDED";
+  if (record.redeemTx) return "REDEEMED";
+  if (record.mintTx) return "MINTED";
+  return "MINTED";
+}
+
+function statusBadgeStyle(status: string) {
+  // Keep it simple and consistent: neutral palette, no risky colors
+  switch (status) {
+    case "REDEEMED":
+      return { background: "#0f172a", color: "#ffffff" };
+    case "VOIDED":
+      return { background: "#111827", color: "#ffffff" };
+    case "MINTED":
+      return { background: "#111827", color: "#ffffff" };
+    default:
+      return { background: "#334155", color: "#ffffff" };
+  }
+}
+
 export default async function handler(req: NextRequest) {
-  const { pathname } = new URL(req.url);
-  const last = pathname.split("/").pop() || "";
+  const url = new URL(req.url);
+  const origin = url.origin;
+
+  const last = url.pathname.split("/").pop() || "";
   const rawSerial = last.replace(/\.png$/i, "");
   const serial = normalizeSerial(rawSerial);
 
@@ -39,7 +68,11 @@ export default async function handler(req: NextRequest) {
   const record =
     (serials as Record<string, SerialRecord | undefined>)[serial] || null;
 
-  const pageUrl = `https://explorer.checks.xyz/testnet/${serial}`;
+  const status = statusFromRecord(record);
+
+  // Use request origin so preview deployments generate correct QR URLs
+  const pagePath = `/testnet/${serial}`;
+  const pageUrl = `${origin}${pagePath}`;
 
   // QR -> SVG -> data url (pure JS, Edge friendly)
   const qr = new qrcode(0, "M");
@@ -52,6 +85,14 @@ export default async function handler(req: NextRequest) {
     ? `${record.network} (chainId ${record.chainId})`
     : "Polygon Amoy (chainId 80002)";
 
+  const contractShort = record ? shortAddr(record.contract) : "";
+  const tokenIdText = record ? String(record.tokenId) : "";
+  const mintTxShort = record?.mintTx ? shortHash(record.mintTx) : "";
+  const redeemTxShort = record?.redeemTx ? shortHash(record.redeemTx) : "";
+  const voidTxShort = record?.voidTx ? shortHash(record.voidTx) : "";
+
+  const badge = statusBadgeStyle(status);
+
   return new ImageResponse(
     (
       <div
@@ -61,7 +102,7 @@ export default async function handler(req: NextRequest) {
           display: "flex",
           padding: 56,
           background: "#0b1220",
-          fontFamily: "Noto Sans",
+          fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
       >
         <div
@@ -88,22 +129,38 @@ export default async function handler(req: NextRequest) {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
+                gap: 18,
               }}
             >
-              <div style={{ fontSize: 34, fontWeight: 800, color: "#0b1220" }}>
+              <div style={{ fontSize: 34, fontWeight: 900, color: "#0b1220" }}>
                 Checks
               </div>
-              <div
-                style={{
-                  fontSize: 18,
-                  fontWeight: 800,
-                  padding: "10px 16px",
-                  borderRadius: 999,
-                  background: "#111827",
-                  color: "#ffffff",
-                }}
-              >
-                TESTNET
+
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 900,
+                    padding: "10px 16px",
+                    borderRadius: 999,
+                    background: "#111827",
+                    color: "#ffffff",
+                  }}
+                >
+                  TESTNET
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 900,
+                    padding: "10px 16px",
+                    borderRadius: 999,
+                    ...badge,
+                  }}
+                >
+                  {status}
+                </div>
               </div>
             </div>
 
@@ -114,7 +171,7 @@ export default async function handler(req: NextRequest) {
               style={{
                 marginTop: 10,
                 fontSize: 52,
-                fontWeight: 900,
+                fontWeight: 950,
                 letterSpacing: 2,
                 color: "#0b1220",
               }}
@@ -124,26 +181,45 @@ export default async function handler(req: NextRequest) {
 
             <div style={{ marginTop: 22, fontSize: 20, color: "#0b1220" }}>
               <div style={{ marginTop: 8 }}>
-                <span style={{ fontWeight: 800 }}>Network:</span> {networkLine}
+                <span style={{ fontWeight: 900 }}>Network:</span> {networkLine}
               </div>
 
               {record ? (
                 <div style={{ marginTop: 8 }}>
-                  <span style={{ fontWeight: 800 }}>TokenId:</span>{" "}
-                  {record.tokenId}
+                  <span style={{ fontWeight: 900 }}>TokenId:</span> {tokenIdText}
                 </div>
               ) : null}
 
               {record ? (
                 <div style={{ marginTop: 8 }}>
-                  <span style={{ fontWeight: 800 }}>Contract:</span>{" "}
-                  {shortAddr(record.contract)}
+                  <span style={{ fontWeight: 900 }}>Contract:</span>{" "}
+                  {contractShort}
                 </div>
               ) : null}
 
-              <div style={{ marginTop: 8 }}>
-                <span style={{ fontWeight: 800 }}>URL:</span>{" "}
-                explorer.checks.xyz/testnet/{serial}
+              {record?.mintTx ? (
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ fontWeight: 900 }}>Mint tx:</span> {mintTxShort}
+                </div>
+              ) : null}
+
+              {record?.redeemTx ? (
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ fontWeight: 900 }}>Redeem tx:</span>{" "}
+                  {redeemTxShort}
+                </div>
+              ) : null}
+
+              {record?.voidTx ? (
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ fontWeight: 900 }}>Void tx:</span> {voidTxShort}
+                </div>
+              ) : null}
+
+              <div style={{ marginTop: 10 }}>
+                <span style={{ fontWeight: 900 }}>URL:</span>{" "}
+                {new URL(origin).host}
+                {pagePath}
               </div>
             </div>
 
@@ -178,7 +254,7 @@ export default async function handler(req: NextRequest) {
               <img src={qrDataUrl} width={236} height={236} />
             </div>
 
-            <div style={{ fontSize: 18, fontWeight: 900, color: "#111827" }}>
+            <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
               Scan to view
             </div>
           </div>
@@ -188,9 +264,9 @@ export default async function handler(req: NextRequest) {
     {
       width: 1200,
       height: 675,
-      // Override default 1-year immutable cache so iteration is easy while M1 is active
       headers: {
-        "cache-control": "public, no-transform, max-age=3600",
+        // Keep iteration friendly during M1
+        "cache-control": "public, no-transform, max-age=600",
       },
     }
   );
