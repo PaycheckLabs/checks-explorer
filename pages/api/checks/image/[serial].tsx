@@ -30,7 +30,7 @@ function shortAddr(addr: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
-async function fetchArrayBufferSafe(url: string): Promise<ArrayBuffer | null> {
+async function fetchFontSafe(url: string): Promise<ArrayBuffer | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -40,93 +40,80 @@ async function fetchArrayBufferSafe(url: string): Promise<ArrayBuffer | null> {
   }
 }
 
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  // Edge-safe base64 (no Buffer)
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
 export default async function handler(req: NextRequest) {
-  const reqUrl = new URL(req.url);
-  const origin = reqUrl.origin;
-
-  const last = reqUrl.pathname.split("/").pop() || "";
-  const rawSerial = last.replace(/\.png$/i, "");
-  const serial = normalizeSerial(rawSerial);
-
-  if (!isValidSerialFormat(serial)) {
-    return new Response("Invalid serial", { status: 400 });
-  }
-
-  const record =
-    (serials as Record<string, SerialRecord | undefined>)[serial] || null;
-
-  // Load assets safely (never crash if missing)
-  const bgBuf = await fetchArrayBufferSafe(`${origin}/check-bg.png`);
-  const bgDataUrl = bgBuf
-    ? `data:image/png;base64,${arrayBufferToBase64(bgBuf)}`
-    : null;
-
-  const [kanitRegular, kanitMedium] = await Promise.all([
-    fetchArrayBufferSafe(`${origin}/fonts/Kanit-Regular.ttf`),
-    fetchArrayBufferSafe(`${origin}/fonts/Kanit-Medium.ttf`),
-  ]);
-
-  const fonts =
-    kanitRegular && kanitMedium
-      ? [
-          { name: "Kanit", data: kanitRegular, weight: 400 as const, style: "normal" as const },
-          { name: "Kanit", data: kanitMedium, weight: 500 as const, style: "normal" as const },
-        ]
-      : undefined;
-
-  // QR points to serial page (origin-aware)
-  const pageUrl = `${origin}/testnet/${serial}`;
-  const qr = new qrcode(0, "M");
-  qr.addData(pageUrl);
-  qr.make();
-  const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
-  const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
-
-  // Text values (M1 placeholders)
-  const tokenName = "Mock USD";
-  const tokenSymbol = "mUSD";
-  const amountNumber = "100";
-  const titleText = "Testnet Payment Check";
-
-  const typeValue = "Payment";
-  const sentDateValue = "Testnet";
-  const senderValue = shortAddr(DEV_SENDER);
-  const receiverValue = shortAddr(DEV_RECEIVER);
-  const conditionsValue =
-    record?.claimableAt && record.claimableAt > 0 ? "Postdated" : "None";
-
-  // Layout constants
-  const PAD_X = 84;
-
-  // Header
-  const TOKEN_ROW_Y = 46;
-  const TITLE_Y = 132;
-
-  // Values column (tune these)
-  const VALUE_X = 430;
-  const TYPE_Y = 360;
-  const SENT_Y = 424;
-  const SENDER_Y = 488;
-  const RECEIVER_Y = 552;
-  const CONDITIONS_Y = 616;
-
-  // QR
-  const QR_SIZE = 280;
-  const QR_X = 1200 - PAD_X - QR_SIZE;
-  const QR_Y = 360;
-
-  // Footer serial
-  const SERIAL_BOTTOM_PAD = 54;
-
   try {
+    const reqUrl = new URL(req.url);
+    const origin = reqUrl.origin;
+
+    const last = reqUrl.pathname.split("/").pop() || "";
+    const rawSerial = last.replace(/\.png$/i, "");
+    const serial = normalizeSerial(rawSerial);
+
+    if (!isValidSerialFormat(serial)) {
+      return new Response("Invalid serial", { status: 400 });
+    }
+
+    const record =
+      (serials as Record<string, SerialRecord | undefined>)[serial] || null;
+
+    // Assets are referenced directly, no base64 conversion
+    const bgUrl = `${origin}/check-bg.png`;
+
+    // Load fonts (optional)
+    const [kanitRegular, kanitMedium] = await Promise.all([
+      fetchFontSafe(`${origin}/fonts/Kanit-Regular.ttf`),
+      fetchFontSafe(`${origin}/fonts/Kanit-Medium.ttf`),
+    ]);
+
+    const fonts =
+      kanitRegular && kanitMedium
+        ? [
+            { name: "Kanit", data: kanitRegular, weight: 400 as const, style: "normal" as const },
+            { name: "Kanit", data: kanitMedium, weight: 500 as const, style: "normal" as const },
+          ]
+        : undefined;
+
+    // QR points to serial page
+    const pageUrl = `${origin}/testnet/${serial}`;
+    const qr = new qrcode(0, "M");
+    qr.addData(pageUrl);
+    qr.make();
+    const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
+    const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
+
+    // Header placeholders for M1
+    const tokenName = "Mock USD";
+    const tokenSymbol = "mUSD";
+    const amountNumber = "100";
+    const titleText = "Testnet Payment Check";
+
+    // Body values
+    const typeValue = "Payment";
+    const sentDateValue = "Testnet";
+    const senderValue = shortAddr(DEV_SENDER);
+    const receiverValue = shortAddr(DEV_RECEIVER);
+    const conditionsValue =
+      record?.claimableAt && record.claimableAt > 0 ? "Postdated" : "None";
+
+    // Layout constants (tune later)
+    const PAD_X = 84;
+
+    const TOKEN_ROW_Y = 46;
+    const TITLE_Y = 132;
+
+    const VALUE_X = 430;
+    const TYPE_Y = 360;
+    const SENT_Y = 424;
+    const SENDER_Y = 488;
+    const RECEIVER_Y = 552;
+    const CONDITIONS_Y = 616;
+
+    const QR_SIZE = 280;
+    const QR_X = 1200 - PAD_X - QR_SIZE;
+    const QR_Y = 360;
+
+    const SERIAL_BOTTOM_PAD = 54;
+
     return new ImageResponse(
       (
         <div
@@ -137,23 +124,21 @@ export default async function handler(req: NextRequest) {
             background: "#0b1220",
           }}
         >
-          {/* Background template (only if available) */}
-          {bgDataUrl ? (
-            <img
-              src={bgDataUrl}
-              width={1200}
-              height={800}
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
-          ) : null}
+          {/* Background template */}
+          <img
+            src={bgUrl}
+            width={1200}
+            height={800}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
 
-          {/* Token icon */}
+          {/* Token icon placeholder */}
           <div
             style={{
               position: "absolute",
@@ -224,7 +209,7 @@ export default async function handler(req: NextRequest) {
             {titleText}
           </div>
 
-          {/* Values (Kanit Medium 16) */}
+          {/* Values column (Kanit Medium 16) */}
           <div
             style={{
               position: "absolute",
@@ -290,8 +275,8 @@ export default async function handler(req: NextRequest) {
         ...(fonts ? { fonts } : {}),
       }
     );
-  } catch (e) {
-    // Failsafe: always return a PNG (even if something unexpected breaks)
+  } catch {
+    // Absolute failsafe: always return a PNG so the browser never shows "contains errors"
     return new ImageResponse(
       (
         <div
@@ -309,7 +294,7 @@ export default async function handler(req: NextRequest) {
             textAlign: "center",
           }}
         >
-          Checks Explorer image render error. Verify /check-bg.png and /fonts/Kanit-*.ttf are reachable.
+          Checks Explorer image error. Open Vercel logs for /api/checks/image to see the stack trace.
         </div>
       ),
       { width: 1200, height: 800 }
