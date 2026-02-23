@@ -1,6 +1,8 @@
 import { GetServerSideProps } from "next";
 import Link from "next/link";
+
 import serials from "../../data/testnet-serials.json";
+import { isValidSerialFormat, normalizeSerial } from "../../lib/serial";
 
 type SerialRecord = {
   chainId: number;
@@ -14,22 +16,13 @@ type SerialRecord = {
   claimableAt?: number;
 };
 
-function isValidSerialFormat(s: string) {
-  // LLL-NNNNLL-LLNN, using uppercase letters and digits (hyphens included)
-  return /^[A-Z]{3}-[0-9]{4}[A-Z]{2}-[A-Z]{2}[0-9]{2}$/.test(s);
-}
-
 export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const raw = String(ctx.params?.serial || "");
-  const normalized = raw.trim().toUpperCase();
+  const normalized = normalizeSerial(raw);
 
-  // Canonical redirect to uppercase
   if (raw !== normalized) {
     return {
-      redirect: {
-        destination: `/testnet/${normalized}`,
-        permanent: false
-      }
+      redirect: { destination: `/testnet/${normalized}`, permanent: false },
     };
   }
 
@@ -37,85 +30,210 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
     return { notFound: true };
   }
 
-  const record = (serials as Record<string, SerialRecord>)[normalized] || null;
+  const record =
+    (serials as Record<string, SerialRecord | undefined>)[normalized] || null;
 
-  return {
-    props: {
-      serial: normalized,
-      record
-    }
-  };
+  return { props: { serial: normalized, record } };
 };
+
+function polyscanTx(tx?: string) {
+  return tx ? `https://amoy.polygonscan.com/tx/${tx}` : null;
+}
+function polyscanAddr(addr: string) {
+  return `https://amoy.polygonscan.com/address/${addr}`;
+}
 
 export default function TestnetSerialPage({
   serial,
-  record
+  record,
 }: {
   serial: string;
   record: SerialRecord | null;
 }) {
-  const polyscanTx = (tx?: string) => (tx ? `https://amoy.polygonscan.com/tx/${tx}` : null);
-  const polyscanAddr = (addr: string) => `https://amoy.polygonscan.com/address/${addr}`;
+  const imageUrl = `/api/checks/image/${encodeURIComponent(serial)}`;
+  const pageUrl = `https://explorer.checks.xyz/testnet/${serial}`;
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: 24, lineHeight: 1.4 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <Link href="/" style={{ opacity: 0.8, textDecoration: "none" }}>← Checks Explorer</Link>
-          <h1 style={{ margin: "10px 0 0 0" }}>{serial}</h1>
-          <div style={{ marginTop: 6, display: "inline-block", padding: "4px 10px", borderRadius: 999, background: "#222", color: "#fff", fontSize: 12 }}>
-            Testnet
-          </div>
-        </div>
+    <main
+      style={{
+        maxWidth: 980,
+        margin: "40px auto",
+        padding: "0 20px",
+        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+        lineHeight: 1.4,
+      }}
+    >
+      <Link href="/" style={{ textDecoration: "none" }}>
+        ← Checks Explorer
+      </Link>
+
+      <h1 style={{ margin: "14px 0 8px", fontSize: 40 }}>{serial}</h1>
+
+      <div
+        style={{
+          display: "inline-flex",
+          gap: 10,
+          alignItems: "center",
+          padding: "8px 12px",
+          borderRadius: 999,
+          border: "1px solid #e5e7eb",
+          background: "#f8fafc",
+          color: "#0f172a",
+          fontWeight: 700,
+          fontSize: 14,
+        }}
+      >
+        <span>Testnet</span>
+        <span style={{ color: "#64748b" }}>•</span>
+        <span>Polygon Amoy (80002)</span>
       </div>
 
-      {!record ? (
-        <div style={{ marginTop: 18, padding: 16, border: "1px solid #333", borderRadius: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Serial not found</h2>
-          <p style={{ marginTop: 8, opacity: 0.8 }}>
-            This testnet serial is not in the current mapping file yet.
-          </p>
-          <p style={{ marginTop: 8 }}>
-            If you just minted it, add it to <code>data/testnet-serials.json</code>.
-          </p>
-        </div>
-      ) : (
-        <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr", gap: 14, maxWidth: 900 }}>
-          <div style={{ padding: 16, border: "1px solid #333", borderRadius: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 16 }}>Details</h2>
-            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "180px 1fr", rowGap: 8, columnGap: 12 }}>
-              <div style={{ opacity: 0.7 }}>Network</div><div>{record.network} (chainId {record.chainId})</div>
-              <div style={{ opacity: 0.7 }}>Contract</div>
-              <div><a href={polyscanAddr(record.contract)} target="_blank" rel="noreferrer">{record.contract}</a></div>
-              <div style={{ opacity: 0.7 }}>TokenId</div><div>{record.tokenId}</div>
+      <div
+        style={{
+          marginTop: 26,
+          display: "flex",
+          gap: 22,
+          flexWrap: "wrap",
+          alignItems: "flex-start",
+        }}
+      >
+        <section style={{ flex: "1 1 460px", minWidth: 320 }}>
+          <img
+            src={imageUrl}
+            alt={`NFT Check ${serial}`}
+            style={{
+              width: "100%",
+              borderRadius: 18,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          />
+
+          <div style={{ marginTop: 10, fontSize: 14 }}>
+            <a href={imageUrl} target="_blank" rel="noreferrer">
+              Open image
+            </a>
+            {" · "}
+            <a href={pageUrl} target="_blank" rel="noreferrer">
+              Open page URL
+            </a>
+          </div>
+        </section>
+
+        <section style={{ flex: "1 1 420px", minWidth: 320 }}>
+          {!record ? (
+            <>
+              <h2 style={{ marginTop: 0 }}>Serial not found</h2>
+              <p style={{ marginTop: 8 }}>
+                This testnet serial is not in the current mapping file yet.
+              </p>
+              <p style={{ marginTop: 8 }}>
+                If you just minted it, add it to{" "}
+                <code>data/testnet-serials.json</code>.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 style={{ marginTop: 0 }}>Details</h2>
+
+              <div style={{ marginTop: 10 }}>
+                <div style={{ color: "#64748b", fontWeight: 700 }}>Network</div>
+                <div style={{ marginTop: 4 }}>
+                  {record.network} (chainId {record.chainId})
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14 }}>
+                <div style={{ color: "#64748b", fontWeight: 700 }}>Contract</div>
+                <div style={{ marginTop: 4 }}>
+                  <a
+                    href={polyscanAddr(record.contract)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {record.contract}
+                  </a>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14 }}>
+                <div style={{ color: "#64748b", fontWeight: 700 }}>TokenId</div>
+                <div style={{ marginTop: 4 }}>{record.tokenId}</div>
+              </div>
+
               {record.claimableAt ? (
-                <>
-                  <div style={{ opacity: 0.7 }}>claimableAt</div><div>{record.claimableAt}</div>
-                </>
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ color: "#64748b", fontWeight: 700 }}>
+                    claimableAt
+                  </div>
+                  <div style={{ marginTop: 4 }}>{record.claimableAt}</div>
+                </div>
               ) : null}
-            </div>
-          </div>
 
-          <div style={{ padding: 16, border: "1px solid #333", borderRadius: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 16 }}>On-chain links</h2>
-            <ul style={{ marginTop: 10 }}>
-              {record.mintTx ? <li>Mint: <a href={polyscanTx(record.mintTx)!} target="_blank" rel="noreferrer">{record.mintTx}</a></li> : null}
-              {record.transferTx ? <li>Transfer: <a href={polyscanTx(record.transferTx)!} target="_blank" rel="noreferrer">{record.transferTx}</a></li> : null}
-              {record.redeemTx ? <li>Redeem: <a href={polyscanTx(record.redeemTx)!} target="_blank" rel="noreferrer">{record.redeemTx}</a></li> : null}
-              {record.voidTx ? <li>Void: <a href={polyscanTx(record.voidTx)!} target="_blank" rel="noreferrer">{record.voidTx}</a></li> : null}
-            </ul>
-          </div>
+              <h3 style={{ marginTop: 22 }}>On-chain links</h3>
 
-          <div style={{ padding: 16, border: "1px solid #333", borderRadius: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 16 }}>Next</h2>
-            <p style={{ marginTop: 8, opacity: 0.8 }}>
-              Next upgrade is to render the NFT check image and QR that points to this page:
-              <br />
-              <code>https://explorer.checks.xyz/testnet/{serial}</code>
-            </p>
-          </div>
-        </div>
-      )}
+              <ul style={{ marginTop: 10, paddingLeft: 18 }}>
+                {record.mintTx ? (
+                  <li>
+                    Mint:{" "}
+                    <a
+                      href={polyscanTx(record.mintTx) as string}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {record.mintTx}
+                    </a>
+                  </li>
+                ) : null}
+
+                {record.transferTx ? (
+                  <li>
+                    Transfer:{" "}
+                    <a
+                      href={polyscanTx(record.transferTx) as string}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {record.transferTx}
+                    </a>
+                  </li>
+                ) : null}
+
+                {record.redeemTx ? (
+                  <li>
+                    Redeem:{" "}
+                    <a
+                      href={polyscanTx(record.redeemTx) as string}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {record.redeemTx}
+                    </a>
+                  </li>
+                ) : null}
+
+                {record.voidTx ? (
+                  <li>
+                    Void:{" "}
+                    <a
+                      href={polyscanTx(record.voidTx) as string}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {record.voidTx}
+                    </a>
+                  </li>
+                ) : null}
+              </ul>
+            </>
+          )}
+        </section>
+      </div>
+
+      <div style={{ marginTop: 34, fontSize: 14, color: "#64748b" }}>
+        Tip: keep serials uppercase. The explorer canonicalizes to uppercase on
+        load.
+      </div>
     </main>
   );
 }
