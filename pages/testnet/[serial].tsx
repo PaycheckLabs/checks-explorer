@@ -11,8 +11,8 @@ type SerialRecord = {
   contract: string;
   tokenId: number;
   mintTx?: string;
-  redeemTx?: string;
   transferTx?: string;
+  redeemTx?: string;
   voidTx?: string;
   claimableAt?: number;
 };
@@ -37,7 +37,8 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
     return { notFound: true };
   }
 
-  const record = (serials as Record<string, SerialRecord | undefined>)[normalized] || null;
+  const record =
+    (serials as Record<string, SerialRecord | undefined>)[normalized] || null;
 
   const proto = (ctx.req.headers["x-forwarded-proto"] as string) || "https";
   const host = ctx.req.headers.host || "explorer.checks.xyz";
@@ -54,69 +55,50 @@ function polyscanAddr(addr: string) {
 }
 
 export default function TestnetSerialPage({ serial, record, origin }: PageProps) {
-  // Bump this string anytime you change QR placement.
-  const IMAGE_VERSION = "qr72";
+  // bump this anytime you want to force-refresh the image endpoint everywhere
+  const IMAGE_VERSION = "final-qr";
 
-  const imageUrl = `/api/checks/image/${encodeURIComponent(serial)}?v=${IMAGE_VERSION}`;
+  const imagePath = `/api/checks/image/${encodeURIComponent(serial)}?v=${IMAGE_VERSION}`;
   const pageUrl = `${origin}/${encodeURIComponent(serial)}`;
-  const ogImageUrl = `${origin}${imageUrl}`;
+  const ogImageUrl = `${origin}${imagePath}`;
 
   const title = `Checks Explorer Testnet • ${serial}`;
   const description =
-    "Payment Checks v1 testnet serial page. View details, on-chain links, and the matching check card image + QR.";
+    "Payment Checks v1 testnet serial page with on-chain proof links and check card image.";
 
   return (
     <>
       <Head>
         <title>{title}</title>
         <meta name="description" content={description} />
+
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />
         <meta property="og:image" content={ogImageUrl} />
+
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:image" content={ogImageUrl} />
       </Head>
 
-      <div style={{ maxWidth: 980, margin: "40px auto", padding: "0 16px" }}>
-        <div style={{ marginBottom: 12 }}>
-          <Link href="/" style={{ color: "#4f46e5" }}>
+      <div className="wrap">
+        <div className="top">
+          <Link href="/" className="back">
             ← Checks Explorer
           </Link>
+
+          <h1 className="serial">{serial}</h1>
+
+          <div className="pill">
+            <strong>Testnet</strong> • Polygon Amoy (80002)
+          </div>
         </div>
 
-        <h1 style={{ fontSize: 48, margin: "0 0 8px 0" }}>{serial}</h1>
+        <div className="grid">
+          <div className="left">
+            <img className="card" src={imagePath} alt={`Check card ${serial}`} />
 
-        <div
-          style={{
-            display: "inline-flex",
-            gap: 10,
-            alignItems: "center",
-            padding: "8px 12px",
-            border: "1px solid #e5e7eb",
-            borderRadius: 999,
-            color: "#111827",
-            marginBottom: 24,
-            fontSize: 14,
-          }}
-        >
-          <strong>Testnet</strong> • Polygon Amoy (80002)
-        </div>
-
-        <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
-          <div style={{ flex: "0 0 520px" }}>
-            <img
-              src={imageUrl}
-              alt={`Check card ${serial}`}
-              style={{
-                width: "100%",
-                borderRadius: 16,
-                boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-                display: "block",
-              }}
-            />
-
-            <div style={{ marginTop: 10, fontSize: 14 }}>
-              <a href={imageUrl} target="_blank" rel="noreferrer">
+            <div className="links">
+              <a href={imagePath} target="_blank" rel="noreferrer">
                 Open image
               </a>
               {" · "}
@@ -126,45 +108,43 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
             </div>
           </div>
 
-          <div style={{ flex: "1 1 360px" }}>
-            <h2 style={{ fontSize: 28, marginTop: 0 }}>Details</h2>
+          <div className="right">
+            <h2 className="h2">Details</h2>
 
             {!record ? (
-              <>
-                <h3>Serial not found</h3>
-                <p>This testnet serial is not in the current mapping file yet.</p>
-                <p>
-                  If you just minted it, add it to <code>data/testnet-serials.json</code>.
-                </p>
-              </>
+              <div className="muted">
+                Serial not found. Add it to <code>data/testnet-serials.json</code>.
+              </div>
             ) : (
               <>
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ color: "#64748b", fontWeight: 600 }}>Network</div>
-                  <div>{record.network} (chainId {record.chainId})</div>
+                <div className="row">
+                  <div className="label">Network</div>
+                  <div>
+                    {record.network} (chainId {record.chainId})
+                  </div>
                 </div>
 
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ color: "#64748b", fontWeight: 600 }}>Contract</div>
+                <div className="row">
+                  <div className="label">Contract</div>
                   <a href={polyscanAddr(record.contract)} target="_blank" rel="noreferrer">
                     {record.contract}
                   </a>
                 </div>
 
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ color: "#64748b", fontWeight: 600 }}>TokenId</div>
+                <div className="row">
+                  <div className="label">TokenId</div>
                   <div>{record.tokenId}</div>
                 </div>
 
                 {record.claimableAt ? (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ color: "#64748b", fontWeight: 600 }}>claimableAt</div>
+                  <div className="row">
+                    <div className="label">claimableAt</div>
                     <div>{record.claimableAt}</div>
                   </div>
                 ) : null}
 
-                <h3 style={{ marginTop: 22 }}>On-chain links</h3>
-                <ul>
+                <h3 className="h3">On-chain links</h3>
+                <ul className="ul">
                   {record.mintTx ? (
                     <li>
                       Mint:{" "}
@@ -211,10 +191,95 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           </div>
         </div>
 
-        <div style={{ marginTop: 34, fontSize: 14, color: "#64748b" }}>
+        <div className="tip">
           Tip: This is an early explorer view. Full experience coming soon.
         </div>
       </div>
+
+      <style jsx>{`
+        .wrap {
+          max-width: 1040px;
+          margin: 40px auto;
+          padding: 0 16px;
+          font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+          color: #111827;
+        }
+        .top {
+          margin-bottom: 18px;
+        }
+        .back {
+          color: #4f46e5;
+          text-decoration: none;
+        }
+        .serial {
+          font-size: 52px;
+          line-height: 1.05;
+          margin: 10px 0 10px;
+          font-weight: 800;
+        }
+        .pill {
+          display: inline-flex;
+          gap: 10px;
+          align-items: center;
+          padding: 8px 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 999px;
+          font-size: 14px;
+          color: #111827;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: 520px 1fr;
+          gap: 28px;
+          align-items: start;
+        }
+        .card {
+          width: 100%;
+          border-radius: 16px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+          display: block;
+        }
+        .links {
+          margin-top: 10px;
+          font-size: 14px;
+        }
+        .h2 {
+          font-size: 28px;
+          margin: 0 0 14px 0;
+        }
+        .row {
+          margin-bottom: 14px;
+        }
+        .label {
+          color: #64748b;
+          font-weight: 700;
+          margin-bottom: 4px;
+        }
+        .h3 {
+          margin-top: 22px;
+          margin-bottom: 10px;
+          font-size: 18px;
+        }
+        .ul {
+          margin: 0;
+          padding-left: 18px;
+        }
+        .tip {
+          margin-top: 34px;
+          font-size: 14px;
+          color: #64748b;
+          text-align: left;
+        }
+        .muted {
+          color: #64748b;
+        }
+
+        @media (max-width: 980px) {
+          .grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
     </>
   );
 }
