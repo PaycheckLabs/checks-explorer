@@ -23,7 +23,7 @@ type PageProps = {
   origin: string;
 };
 
-export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => {
+export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const raw = String(ctx.params?.serial || "");
   const normalized = normalizeSerial(raw);
 
@@ -37,8 +37,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
     return { notFound: true };
   }
 
-  const record =
-    (serials as Record<string, SerialRecord | undefined>)[normalized] || null;
+  const record = (serials as Record<string, SerialRecord | undefined>)[normalized] || null;
 
   const proto = (ctx.req.headers["x-forwarded-proto"] as string) || "https";
   const host = ctx.req.headers.host || "explorer.checks.xyz";
@@ -50,15 +49,17 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
 function polyscanTx(tx?: string) {
   return tx ? `https://amoy.polygonscan.com/tx/${tx}` : null;
 }
-
 function polyscanAddr(addr: string) {
   return `https://amoy.polygonscan.com/address/${addr}`;
 }
 
 export default function TestnetSerialPage({ serial, record, origin }: PageProps) {
-  const imageUrl = `/api/checks/image/${encodeURIComponent(serial)}`;
-  const pageUrl = `${origin}/testnet/${encodeURIComponent(serial)}`;
-  const ogImageUrl = `${origin}/api/checks/image/${encodeURIComponent(serial)}`;
+  // Bump this string anytime you change QR placement.
+  const IMAGE_VERSION = "qr72";
+
+  const imageUrl = `/api/checks/image/${encodeURIComponent(serial)}?v=${IMAGE_VERSION}`;
+  const pageUrl = `${origin}/${encodeURIComponent(serial)}`;
+  const ogImageUrl = `${origin}${imageUrl}`;
 
   const title = `Checks Explorer Testnet • ${serial}`;
   const description =
@@ -69,35 +70,21 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
       <Head>
         <title>{title}</title>
         <meta name="description" content={description} />
-
-        <link rel="canonical" href={pageUrl} />
-
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />
-        <meta property="og:type" content="website" />
-        <meta property="og:url" content={pageUrl} />
         <meta property="og:image" content={ogImageUrl} />
-
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={title} />
-        <meta name="twitter:description" content={description} />
         <meta name="twitter:image" content={ogImageUrl} />
       </Head>
 
-      <main
-        style={{
-          maxWidth: 980,
-          margin: "40px auto",
-          padding: "0 20px",
-          fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-          lineHeight: 1.4,
-        }}
-      >
-        <Link href="/" style={{ textDecoration: "none" }}>
-          ← Checks Explorer
-        </Link>
+      <div style={{ maxWidth: 980, margin: "40px auto", padding: "0 16px" }}>
+        <div style={{ marginBottom: 12 }}>
+          <Link href="/" style={{ color: "#4f46e5" }}>
+            ← Checks Explorer
+          </Link>
+        </div>
 
-        <h1 style={{ margin: "14px 0 8px", fontSize: 40 }}>{serial}</h1>
+        <h1 style={{ fontSize: 48, margin: "0 0 8px 0" }}>{serial}</h1>
 
         <div
           style={{
@@ -105,37 +92,26 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
             gap: 10,
             alignItems: "center",
             padding: "8px 12px",
-            borderRadius: 999,
             border: "1px solid #e5e7eb",
-            background: "#f8fafc",
-            color: "#0f172a",
-            fontWeight: 700,
+            borderRadius: 999,
+            color: "#111827",
+            marginBottom: 24,
             fontSize: 14,
           }}
         >
-          <span>Testnet</span>
-          <span style={{ color: "#64748b" }}>•</span>
-          <span>Polygon Amoy (80002)</span>
+          <strong>Testnet</strong> • Polygon Amoy (80002)
         </div>
 
-        <div
-          style={{
-            marginTop: 26,
-            display: "flex",
-            gap: 22,
-            flexWrap: "wrap",
-            alignItems: "flex-start",
-          }}
-        >
-          <section style={{ flex: "1 1 460px", minWidth: 320 }}>
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div style={{ flex: "0 0 520px" }}>
             <img
               src={imageUrl}
-              alt={`NFT Check ${serial}`}
+              alt={`Check card ${serial}`}
               style={{
                 width: "100%",
-                borderRadius: 18,
-                border: "1px solid #e5e7eb",
-                background: "#ffffff",
+                borderRadius: 16,
+                boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+                display: "block",
               }}
             />
 
@@ -148,85 +124,60 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                 Open page URL
               </a>
             </div>
-          </section>
+          </div>
 
-          <section style={{ flex: "1 1 420px", minWidth: 320 }}>
+          <div style={{ flex: "1 1 360px" }}>
+            <h2 style={{ fontSize: 28, marginTop: 0 }}>Details</h2>
+
             {!record ? (
               <>
-                <h2 style={{ marginTop: 0 }}>Serial not found</h2>
-                <p style={{ marginTop: 8 }}>
-                  This testnet serial is not in the current mapping file yet.
-                </p>
-                <p style={{ marginTop: 8 }}>
-                  If you just minted it, add it to{" "}
-                  <code>data/testnet-serials.json</code>.
+                <h3>Serial not found</h3>
+                <p>This testnet serial is not in the current mapping file yet.</p>
+                <p>
+                  If you just minted it, add it to <code>data/testnet-serials.json</code>.
                 </p>
               </>
             ) : (
               <>
-                <h2 style={{ marginTop: 0 }}>Details</h2>
-
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ color: "#64748b", fontWeight: 700 }}>
-                    Network
-                  </div>
-                  <div style={{ marginTop: 4 }}>
-                    {record.network} (chainId {record.chainId})
-                  </div>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: "#64748b", fontWeight: 600 }}>Network</div>
+                  <div>{record.network} (chainId {record.chainId})</div>
                 </div>
 
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ color: "#64748b", fontWeight: 700 }}>
-                    Contract
-                  </div>
-                  <div style={{ marginTop: 4 }}>
-                    <a
-                      href={polyscanAddr(record.contract)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {record.contract}
-                    </a>
-                  </div>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: "#64748b", fontWeight: 600 }}>Contract</div>
+                  <a href={polyscanAddr(record.contract)} target="_blank" rel="noreferrer">
+                    {record.contract}
+                  </a>
                 </div>
 
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ color: "#64748b", fontWeight: 700 }}>
-                    TokenId
-                  </div>
-                  <div style={{ marginTop: 4 }}>{record.tokenId}</div>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: "#64748b", fontWeight: 600 }}>TokenId</div>
+                  <div>{record.tokenId}</div>
                 </div>
 
                 {record.claimableAt ? (
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ color: "#64748b", fontWeight: 700 }}>
-                      claimableAt
-                    </div>
-                    <div style={{ marginTop: 4 }}>{record.claimableAt}</div>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ color: "#64748b", fontWeight: 600 }}>claimableAt</div>
+                    <div>{record.claimableAt}</div>
                   </div>
                 ) : null}
 
                 <h3 style={{ marginTop: 22 }}>On-chain links</h3>
-
-                <ul style={{ marginTop: 10, paddingLeft: 18 }}>
+                <ul>
                   {record.mintTx ? (
                     <li>
                       Mint:{" "}
-                      <a
-                        href={polyscanTx(record.mintTx) as string}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
+                      <a href={polyscanTx(record.mintTx) || "#"} target="_blank" rel="noreferrer">
                         {record.mintTx}
                       </a>
                     </li>
                   ) : null}
-
                   {record.transferTx ? (
                     <li>
                       Transfer:{" "}
                       <a
-                        href={polyscanTx(record.transferTx) as string}
+                        href={polyscanTx(record.transferTx) || "#"}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -234,12 +185,11 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       </a>
                     </li>
                   ) : null}
-
                   {record.redeemTx ? (
                     <li>
                       Redeem:{" "}
                       <a
-                        href={polyscanTx(record.redeemTx) as string}
+                        href={polyscanTx(record.redeemTx) || "#"}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -247,15 +197,10 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       </a>
                     </li>
                   ) : null}
-
                   {record.voidTx ? (
                     <li>
                       Void:{" "}
-                      <a
-                        href={polyscanTx(record.voidTx) as string}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
+                      <a href={polyscanTx(record.voidTx) || "#"} target="_blank" rel="noreferrer">
                         {record.voidTx}
                       </a>
                     </li>
@@ -263,13 +208,13 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                 </ul>
               </>
             )}
-          </section>
+          </div>
         </div>
 
         <div style={{ marginTop: 34, fontSize: 14, color: "#64748b" }}>
           Tip: This is an early explorer view. Full experience coming soon.
         </div>
-      </main>
+      </div>
     </>
   );
 }
