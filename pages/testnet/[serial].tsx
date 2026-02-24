@@ -54,10 +54,19 @@ function polyscanAddr(addr: string) {
   return `https://amoy.polygonscan.com/address/${addr}`;
 }
 
-function shortHex(value: string, left = 10, right = 8) {
-  const v = String(value || "");
-  if (v.length <= left + right + 3) return v;
-  return `${v.slice(0, left)}…${v.slice(-right)}`;
+function getStatus(r: SerialRecord) {
+  if (r.voidTx) return { label: "Voided", tone: "bad" as const };
+  if (r.redeemTx) return { label: "Redeemed", tone: "good" as const };
+  if (r.claimableAt) return { label: "Postdated", tone: "warn" as const };
+  return { label: "Active", tone: "neutral" as const };
+}
+
+function copyText(text: string) {
+  try {
+    navigator.clipboard?.writeText(text);
+  } catch {
+    // no-op (clipboard may be blocked in some contexts)
+  }
 }
 
 export default function TestnetSerialPage({ serial, record, origin }: PageProps) {
@@ -71,6 +80,8 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
   const title = `Checks Explorer Testnet • ${serial}`;
   const description =
     "Payment Checks v1 testnet serial page with on-chain proof links and check card image.";
+
+  const status = record ? getStatus(record) : null;
 
   return (
     <>
@@ -94,10 +105,18 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
           <h1 className="serial">{serial}</h1>
 
-          <div className="pill" aria-label="network pill">
-            <span className="pillStrong">Testnet</span>
-            <span className="pillDot">•</span>
-            <span className="pillStrong">Polygon Amoy (80002)</span>
+          <div className="subRow">
+            <div className="pill" aria-label="network pill">
+              <span className="pillStrong">Testnet</span>
+              <span className="pillDot">•</span>
+              <span className="pillStrong">Polygon Amoy (80002)</span>
+            </div>
+
+            {status ? (
+              <div className={`status ${status.tone}`} title="Status derived from proof links">
+                {status.label}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -134,15 +153,24 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
                 <div className="row">
                   <div className="label">Contract</div>
-                  <a
-                    className="monoLink"
-                    href={polyscanAddr(record.contract)}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={record.contract}
-                  >
-                    {shortHex(record.contract, 10, 10)}
-                  </a>
+                  <div className="inline">
+                    <a
+                      className="monoLink"
+                      href={polyscanAddr(record.contract)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {record.contract}
+                    </a>
+                    <button
+                      className="copyBtn"
+                      onClick={() => copyText(record.contract)}
+                      type="button"
+                      title="Copy contract address"
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
 
                 <div className="row">
@@ -157,65 +185,104 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                   </div>
                 ) : null}
 
-                <h3 className="h3">On-chain links</h3>
+                <div className="divider" />
+
+                <h2 className="h2">Links</h2>
+
                 <ul className="ul">
                   {record.mintTx ? (
-                    <li>
-                      <span className="liLabel">Mint:</span>{" "}
-                      <a
-                        className="monoLink"
-                        href={polyscanTx(record.mintTx) || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={record.mintTx}
-                      >
-                        {shortHex(record.mintTx, 12, 10)}
-                      </a>
+                    <li className="li">
+                      <span className="liLabel">Mint</span>
+                      <div className="inline">
+                        <a
+                          className="monoLink"
+                          href={polyscanTx(record.mintTx) || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {record.mintTx}
+                        </a>
+                        <button
+                          className="copyBtn"
+                          onClick={() => copyText(record.mintTx || "")}
+                          type="button"
+                          title="Copy mint tx"
+                        >
+                          Copy
+                        </button>
+                      </div>
                     </li>
                   ) : null}
 
                   {record.transferTx ? (
-                    <li>
-                      <span className="liLabel">Transfer:</span>{" "}
-                      <a
-                        className="monoLink"
-                        href={polyscanTx(record.transferTx) || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={record.transferTx}
-                      >
-                        {shortHex(record.transferTx, 12, 10)}
-                      </a>
+                    <li className="li">
+                      <span className="liLabel">Transfer</span>
+                      <div className="inline">
+                        <a
+                          className="monoLink"
+                          href={polyscanTx(record.transferTx) || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {record.transferTx}
+                        </a>
+                        <button
+                          className="copyBtn"
+                          onClick={() => copyText(record.transferTx || "")}
+                          type="button"
+                          title="Copy transfer tx"
+                        >
+                          Copy
+                        </button>
+                      </div>
                     </li>
                   ) : null}
 
                   {record.redeemTx ? (
-                    <li>
-                      <span className="liLabel">Redeem:</span>{" "}
-                      <a
-                        className="monoLink"
-                        href={polyscanTx(record.redeemTx) || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={record.redeemTx}
-                      >
-                        {shortHex(record.redeemTx, 12, 10)}
-                      </a>
+                    <li className="li">
+                      <span className="liLabel">Redeem</span>
+                      <div className="inline">
+                        <a
+                          className="monoLink"
+                          href={polyscanTx(record.redeemTx) || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {record.redeemTx}
+                        </a>
+                        <button
+                          className="copyBtn"
+                          onClick={() => copyText(record.redeemTx || "")}
+                          type="button"
+                          title="Copy redeem tx"
+                        >
+                          Copy
+                        </button>
+                      </div>
                     </li>
                   ) : null}
 
                   {record.voidTx ? (
-                    <li>
-                      <span className="liLabel">Void:</span>{" "}
-                      <a
-                        className="monoLink"
-                        href={polyscanTx(record.voidTx) || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={record.voidTx}
-                      >
-                        {shortHex(record.voidTx, 12, 10)}
-                      </a>
+                    <li className="li">
+                      <span className="liLabel">Void</span>
+                      <div className="inline">
+                        <a
+                          className="monoLink"
+                          href={polyscanTx(record.voidTx) || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {record.voidTx}
+                        </a>
+                        <button
+                          className="copyBtn"
+                          onClick={() => copyText(record.voidTx || "")}
+                          type="button"
+                          title="Copy void tx"
+                        >
+                          Copy
+                        </button>
+                      </div>
                     </li>
                   ) : null}
                 </ul>
@@ -232,14 +299,14 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
       <style jsx>{`
         .wrap {
           max-width: 1120px;
-          margin: 44px auto;
+          margin: 48px auto;
           padding: 0 18px;
           font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
           color: #111827;
         }
 
         .top {
-          margin-bottom: 22px;
+          margin-bottom: 28px; /* more space before the card */
         }
 
         .back {
@@ -247,16 +314,22 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           text-decoration: none;
         }
 
-        /* Serial: slightly smaller + less bold */
         .serial {
           font-size: 46px;
           line-height: 1.08;
-          margin: 12px 0 12px;
+          margin: 14px 0 12px;
           font-weight: 700;
           letter-spacing: -0.6px;
         }
 
-        /* Pill: both segments bold */
+        .subRow {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+          margin-bottom: 6px; /* space between pill row and grid below */
+        }
+
         .pill {
           display: inline-flex;
           gap: 10px;
@@ -276,11 +349,32 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           color: #64748b;
         }
 
-        /* More breathing room between image + Details */
+        .status {
+          padding: 7px 10px;
+          border-radius: 999px;
+          font-size: 13px;
+          font-weight: 700;
+          border: 1px solid #e5e7eb;
+          background: #f8fafc;
+          color: #111827;
+        }
+        .status.good {
+          border-color: rgba(34, 197, 94, 0.35);
+          background: rgba(34, 197, 94, 0.08);
+        }
+        .status.warn {
+          border-color: rgba(245, 158, 11, 0.35);
+          background: rgba(245, 158, 11, 0.08);
+        }
+        .status.bad {
+          border-color: rgba(239, 68, 68, 0.35);
+          background: rgba(239, 68, 68, 0.08);
+        }
+
         .grid {
           display: grid;
           grid-template-columns: 560px 1fr;
-          gap: 40px;
+          gap: 44px; /* more breathing room between card and Details */
           align-items: start;
         }
 
@@ -299,6 +393,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         .h2 {
           font-size: 28px;
           margin: 0 0 14px 0;
+          font-weight: 800;
         }
 
         .row {
@@ -311,20 +406,50 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           margin-bottom: 4px;
         }
 
-        .h3 {
-          margin-top: 22px;
-          margin-bottom: 10px;
-          font-size: 18px;
+        .divider {
+          margin: 18px 0 18px;
+          height: 1px;
+          background: #e5e7eb;
         }
 
         .ul {
           margin: 0;
-          padding-left: 18px;
+          padding-left: 0;
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .li {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
         }
 
         .liLabel {
-          font-weight: 700;
+          font-weight: 800;
           color: #111827;
+        }
+
+        .inline {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .copyBtn {
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          border-radius: 10px;
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .copyBtn:hover {
+          background: #f8fafc;
         }
 
         .tip {
@@ -346,7 +471,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         .monoLink {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
             "Liberation Mono", "Courier New", monospace;
-          word-break: break-all;
+          word-break: break-all; /* full hashes won’t overflow */
         }
 
         @media (max-width: 1040px) {
