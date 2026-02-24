@@ -7,9 +7,10 @@ export const config = {
   runtime: "edge",
 };
 
-async function urlExists(url: string): Promise<boolean> {
+// Use GET instead of HEAD (some CDNs/hosts can behave oddly with HEAD)
+async function urlOk(url: string): Promise<boolean> {
   try {
-    const res = await fetch(url, { method: "HEAD" });
+    const res = await fetch(url);
     return res.ok;
   } catch {
     return false;
@@ -31,7 +32,7 @@ export default async function handler(req: NextRequest) {
   // Prefer baked per-serial image, fallback to generic bg if missing
   const serialImg = `${origin}/checks/testnet/${encodeURIComponent(serial)}.png`;
   const fallbackImg = `${origin}/check-bg.png`;
-  const chosenImg = (await urlExists(serialImg)) ? serialImg : fallbackImg;
+  const chosenImg = (await urlOk(serialImg)) ? serialImg : fallbackImg;
 
   // QR routes to the final clean link
   const pageUrl = `${origin}/${serial}`;
@@ -42,14 +43,18 @@ export default async function handler(req: NextRequest) {
   const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
   const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
 
-  // QR placement (horizontal nudge right)
-  // Increase QR_X by +24px to move right slightly.
+  // QR placement
   const PAD_RIGHT = 120;
   const QR_SIZE = 280;
   const QR_Y = 360;
 
   const QR_X_BASE = 1200 - PAD_RIGHT - QR_SIZE;
-  const QR_X = QR_X_BASE + 44; // nudge right to align with serial edge
+
+  // This is the only value you need to tune.
+  // +44 was too far left for your baked template.
+  // +96 shifts it right ~52px more than before.
+  const QR_X_NUDGE = 96;
+  const QR_X = QR_X_BASE + QR_X_NUDGE;
 
   return new ImageResponse(
     (
