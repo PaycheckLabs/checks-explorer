@@ -267,8 +267,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         </div>
 
         <div style={{ marginTop: 34, fontSize: 14, color: "#64748b" }}>
-          Tip: keep serials uppercase. The explorer canonicalizes to uppercase on
-          load.
+          Tip: This is an early explorer view. Full experience coming soon.
         </div>
       </main>
     </>
