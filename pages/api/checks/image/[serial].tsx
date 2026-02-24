@@ -7,6 +7,7 @@ export const config = {
   runtime: "edge",
 };
 
+// Use GET instead of HEAD (more reliable across CDNs)
 async function urlOk(url: string): Promise<boolean> {
   try {
     const res = await fetch(url);
@@ -49,10 +50,8 @@ export default async function handler(req: NextRequest) {
 
   const QR_X_BASE = 1200 - PAD_RIGHT - QR_SIZE;
 
-  // FINAL tuning knob:
-  // 44 was too left, 96 was too right for what you want.
-  // 72 should land between those and align close to the serial edge.
-  const QR_X_NUDGE = 72;
+  // If your last "almost perfect" was around 72, push it 3px more:
+  const QR_X_NUDGE = 75; // +3px
   const QR_X = QR_X_BASE + QR_X_NUDGE;
 
   return new ImageResponse(
