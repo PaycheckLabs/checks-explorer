@@ -7,7 +7,6 @@ export const config = {
   runtime: "edge",
 };
 
-// Use GET instead of HEAD (some CDNs/hosts can behave oddly with HEAD)
 async function urlOk(url: string): Promise<boolean> {
   try {
     const res = await fetch(url);
@@ -34,7 +33,7 @@ export default async function handler(req: NextRequest) {
   const fallbackImg = `${origin}/check-bg.png`;
   const chosenImg = (await urlOk(serialImg)) ? serialImg : fallbackImg;
 
-  // QR routes to the final clean link
+  // QR routes to the clean canonical link
   const pageUrl = `${origin}/${serial}`;
 
   const qr = new qrcode(0, "M");
@@ -50,10 +49,10 @@ export default async function handler(req: NextRequest) {
 
   const QR_X_BASE = 1200 - PAD_RIGHT - QR_SIZE;
 
-  // This is the only value you need to tune.
-  // +44 was too far left for your baked template.
-  // +96 shifts it right ~52px more than before.
-  const QR_X_NUDGE = 96;
+  // FINAL tuning knob:
+  // 44 was too left, 96 was too right for what you want.
+  // 72 should land between those and align close to the serial edge.
+  const QR_X_NUDGE = 72;
   const QR_X = QR_X_BASE + QR_X_NUDGE;
 
   return new ImageResponse(
