@@ -28,12 +28,12 @@ export default async function handler(req: NextRequest) {
     return new Response("Invalid serial", { status: 400 });
   }
 
-  // Prefer per-serial image, fallback to generic bg if missing
+  // Prefer baked per-serial image, fallback to generic bg if missing
   const serialImg = `${origin}/checks/testnet/${encodeURIComponent(serial)}.png`;
   const fallbackImg = `${origin}/check-bg.png`;
   const chosenImg = (await urlExists(serialImg)) ? serialImg : fallbackImg;
 
-  // QR routes to the final clean link (root path)
+  // QR routes to the final clean link
   const pageUrl = `${origin}/${serial}`;
 
   const qr = new qrcode(0, "M");
@@ -42,11 +42,14 @@ export default async function handler(req: NextRequest) {
   const qrSvg = qr.createSvgTag({ cellSize: 6, margin: 0 });
   const qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg)}`;
 
-  // QR placement (tune if needed)
+  // QR placement (horizontal nudge right)
+  // Increase QR_X by +24px to move right slightly.
   const PAD_RIGHT = 120;
   const QR_SIZE = 280;
-  const QR_X = 1200 - PAD_RIGHT - QR_SIZE;
   const QR_Y = 360;
+
+  const QR_X_BASE = 1200 - PAD_RIGHT - QR_SIZE;
+  const QR_X = QR_X_BASE + 24; // <--- NUDGE RIGHT (tune 16-40 as needed)
 
   return new ImageResponse(
     (
