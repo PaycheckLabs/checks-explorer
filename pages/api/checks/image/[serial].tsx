@@ -49,7 +49,7 @@ export default async function handler(req: NextRequest) {
   const QR_Y = 360;
 
   const QR_X_BASE = 1200 - PAD_RIGHT - QR_SIZE;
-  const QR_X = QR_X_BASE + 24; // <--- NUDGE RIGHT (tune 16-40 as needed)
+  const QR_X = QR_X_BASE + 44; // nudge right to align with serial edge
 
   return new ImageResponse(
     (
