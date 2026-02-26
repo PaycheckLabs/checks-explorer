@@ -90,7 +90,7 @@ export default function Home() {
       </header>
 
       <section className="card">
-        <div className="cardTitle">Find a check</div>
+        <div className="cardTitle">Search Checks</div>
 
         <form
           className="searchRow"
