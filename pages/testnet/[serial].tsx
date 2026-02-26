@@ -1,6 +1,7 @@
 import type { GetServerSideProps } from "next";
 import Head from "next/head";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 import serials from "../../data/testnet-serials.json";
 import { isValidSerialFormat, normalizeSerial } from "../../lib/serial";
@@ -61,11 +62,32 @@ function getStatus(r: SerialRecord) {
   return { label: "Active", tone: "neutral" as const };
 }
 
-function copyText(text: string) {
+async function safeCopy(text: string): Promise<boolean> {
+  if (!text) return false;
+
+  // Clipboard API (best)
   try {
-    navigator.clipboard?.writeText(text);
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    // no-op (clipboard may be blocked in some contexts)
+    // fall through
+  }
+
+  // Fallback for restricted contexts
+  try {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    el.style.top = "-9999px";
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
   }
 }
 
@@ -74,7 +96,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
   const IMAGE_VERSION = "final";
 
   const imagePath = `/api/checks/image/${encodeURIComponent(serial)}?v=${IMAGE_VERSION}`;
-  const pageUrl = `${origin}/${encodeURIComponent(serial)}`;
+  const pageUrl = `${origin}/testnet/${encodeURIComponent(serial)}`;
   const ogImageUrl = `${origin}${imagePath}`;
 
   const title = `Checks Explorer Testnet • ${serial}`;
@@ -82,6 +104,30 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
     "Payment Checks v1 testnet serial page with on-chain proof links and check card image.";
 
   const status = record ? getStatus(record) : null;
+
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  async function copyWithFeedback(key: string, value: string) {
+    const ok = await safeCopy(value);
+    if (!ok) return;
+
+    setCopiedKey(key);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      setCopiedKey((k) => (k === key ? null : k));
+    }, 1000);
+  }
+
+  function copyLabel(key: string) {
+    return copiedKey === key ? "Copied" : "Copy";
+  }
 
   return (
     <>
@@ -113,8 +159,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
             </div>
 
             {status ? (
-              <div className={`status ${status.tone}`} title="Status derived from proof links">
-                {status.label}
+              <div
+                className={`status ${status.tone}`}
+                title="Status derived from proof links"
+              >
+                <span className="statusLabel">Status</span>
+                <span className="statusValue">{status.label}</span>
               </div>
             ) : null}
           </div>
@@ -128,10 +178,21 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
               <a href={imagePath} target="_blank" rel="noreferrer">
                 Open image
               </a>
-              {" · "}
+
+              <span className="dot">·</span>
+
               <a href={pageUrl} target="_blank" rel="noreferrer">
-                Open page URL
+                Open page
               </a>
+
+              <button
+                className={`copyMini ${copiedKey === "page" ? "copied" : ""}`}
+                onClick={() => copyWithFeedback("page", pageUrl)}
+                type="button"
+                title="Copy page link"
+              >
+                {copyLabel("page")}
+              </button>
             </div>
           </div>
 
@@ -154,28 +215,32 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                 <div className="row">
                   <div className="label">Contract</div>
                   <div className="inline">
+                    <span className="mono">{record.contract}</span>
+
                     <a
-                      className="monoLink"
+                      className="openBtn"
                       href={polyscanAddr(record.contract)}
                       target="_blank"
                       rel="noreferrer"
+                      title="Open contract in Polygonscan"
                     >
-                      {record.contract}
+                      Open in Polygonscan
                     </a>
+
                     <button
-                      className="copyBtn"
-                      onClick={() => copyText(record.contract)}
+                      className={`copyBtn ${copiedKey === "contract" ? "copied" : ""}`}
+                      onClick={() => copyWithFeedback("contract", record.contract)}
                       type="button"
                       title="Copy contract address"
                     >
-                      Copy
+                      {copyLabel("contract")}
                     </button>
                   </div>
                 </div>
 
                 <div className="row">
                   <div className="label">TokenId</div>
-                  <div>{record.tokenId}</div>
+                  <div className="mono">{record.tokenId}</div>
                 </div>
 
                 {record.claimableAt ? (
@@ -187,7 +252,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
                 <div className="divider" />
 
-                <h2 className="h2">Links</h2>
+                <h2 className="h2">Proof links</h2>
 
                 <ul className="ul">
                   {record.mintTx ? (
@@ -203,12 +268,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                           {record.mintTx}
                         </a>
                         <button
-                          className="copyBtn"
-                          onClick={() => copyText(record.mintTx || "")}
+                          className={`copyBtn ${copiedKey === "mint" ? "copied" : ""}`}
+                          onClick={() => copyWithFeedback("mint", record.mintTx || "")}
                           type="button"
                           title="Copy mint tx"
                         >
-                          Copy
+                          {copyLabel("mint")}
                         </button>
                       </div>
                     </li>
@@ -227,12 +292,14 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                           {record.transferTx}
                         </a>
                         <button
-                          className="copyBtn"
-                          onClick={() => copyText(record.transferTx || "")}
+                          className={`copyBtn ${copiedKey === "transfer" ? "copied" : ""}`}
+                          onClick={() =>
+                            copyWithFeedback("transfer", record.transferTx || "")
+                          }
                           type="button"
                           title="Copy transfer tx"
                         >
-                          Copy
+                          {copyLabel("transfer")}
                         </button>
                       </div>
                     </li>
@@ -251,12 +318,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                           {record.redeemTx}
                         </a>
                         <button
-                          className="copyBtn"
-                          onClick={() => copyText(record.redeemTx || "")}
+                          className={`copyBtn ${copiedKey === "redeem" ? "copied" : ""}`}
+                          onClick={() => copyWithFeedback("redeem", record.redeemTx || "")}
                           type="button"
                           title="Copy redeem tx"
                         >
-                          Copy
+                          {copyLabel("redeem")}
                         </button>
                       </div>
                     </li>
@@ -275,12 +342,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                           {record.voidTx}
                         </a>
                         <button
-                          className="copyBtn"
-                          onClick={() => copyText(record.voidTx || "")}
+                          className={`copyBtn ${copiedKey === "void" ? "copied" : ""}`}
+                          onClick={() => copyWithFeedback("void", record.voidTx || "")}
                           type="button"
                           title="Copy void tx"
                         >
-                          Copy
+                          {copyLabel("void")}
                         </button>
                       </div>
                     </li>
@@ -306,19 +373,20 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         }
 
         .top {
-          margin-bottom: 28px; /* more space before the card */
+          margin-bottom: 28px;
         }
 
         .back {
           color: #4f46e5;
           text-decoration: none;
+          font-weight: 700;
         }
 
         .serial {
           font-size: 46px;
           line-height: 1.08;
           margin: 14px 0 12px;
-          font-weight: 700;
+          font-weight: 800;
           letter-spacing: -0.6px;
         }
 
@@ -327,7 +395,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           gap: 10px;
           align-items: center;
           flex-wrap: wrap;
-          margin-bottom: 6px; /* space between pill row and grid below */
+          margin-bottom: 6px;
         }
 
         .pill {
@@ -339,10 +407,11 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           border-radius: 999px;
           font-size: 14px;
           color: #111827;
+          background: #ffffff;
         }
 
         .pillStrong {
-          font-weight: 700;
+          font-weight: 800;
         }
 
         .pillDot {
@@ -350,31 +419,45 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         }
 
         .status {
-          padding: 7px 10px;
+          display: inline-flex;
+          gap: 10px;
+          align-items: center;
+          padding: 9px 12px;
           border-radius: 999px;
           font-size: 13px;
-          font-weight: 700;
+          font-weight: 900;
           border: 1px solid #e5e7eb;
           background: #f8fafc;
           color: #111827;
         }
+
+        .statusLabel {
+          color: #64748b;
+          font-weight: 900;
+        }
+
+        .statusValue {
+          font-weight: 900;
+          letter-spacing: 0.2px;
+        }
+
         .status.good {
-          border-color: rgba(34, 197, 94, 0.35);
-          background: rgba(34, 197, 94, 0.08);
+          border-color: rgba(34, 197, 94, 0.45);
+          background: rgba(34, 197, 94, 0.12);
         }
         .status.warn {
-          border-color: rgba(245, 158, 11, 0.35);
-          background: rgba(245, 158, 11, 0.08);
+          border-color: rgba(245, 158, 11, 0.45);
+          background: rgba(245, 158, 11, 0.12);
         }
         .status.bad {
-          border-color: rgba(239, 68, 68, 0.35);
-          background: rgba(239, 68, 68, 0.08);
+          border-color: rgba(239, 68, 68, 0.45);
+          background: rgba(239, 68, 68, 0.12);
         }
 
         .grid {
           display: grid;
           grid-template-columns: 560px 1fr;
-          gap: 44px; /* more breathing room between card and Details */
+          gap: 44px;
           align-items: start;
         }
 
@@ -388,12 +471,34 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         .links {
           margin-top: 12px;
           font-size: 14px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .dot {
+          color: #94a3b8;
+        }
+
+        .copyMini {
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          border-radius: 10px;
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .copyMini:hover {
+          background: #f8fafc;
         }
 
         .h2 {
           font-size: 28px;
           margin: 0 0 14px 0;
-          font-weight: 800;
+          font-weight: 900;
         }
 
         .row {
@@ -402,7 +507,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
         .label {
           color: #64748b;
-          font-weight: 700;
+          font-weight: 900;
           margin-bottom: 4px;
         }
 
@@ -428,7 +533,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         }
 
         .liLabel {
-          font-weight: 800;
+          font-weight: 900;
           color: #111827;
         }
 
@@ -439,17 +544,38 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           flex-wrap: wrap;
         }
 
+        .openBtn {
+          border: 1px solid rgba(79, 70, 229, 0.25);
+          background: rgba(79, 70, 229, 0.07);
+          color: #4f46e5;
+          border-radius: 10px;
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 900;
+          text-decoration: none;
+        }
+
+        .openBtn:hover {
+          background: rgba(79, 70, 229, 0.1);
+        }
+
         .copyBtn {
           border: 1px solid #e5e7eb;
           background: #ffffff;
           border-radius: 10px;
           padding: 6px 10px;
           font-size: 12px;
-          font-weight: 700;
+          font-weight: 900;
           cursor: pointer;
         }
+
         .copyBtn:hover {
           background: #f8fafc;
+        }
+
+        .copied {
+          border-color: rgba(34, 197, 94, 0.55) !important;
+          background: rgba(34, 197, 94, 0.12) !important;
         }
 
         .tip {
@@ -466,12 +592,13 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
         .mono {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
             "Liberation Mono", "Courier New", monospace;
+          word-break: break-all;
         }
 
         .monoLink {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
             "Liberation Mono", "Courier New", monospace;
-          word-break: break-all; /* full hashes won’t overflow */
+          word-break: break-all;
         }
 
         @media (max-width: 1040px) {
