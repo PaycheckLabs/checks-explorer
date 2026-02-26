@@ -111,15 +111,11 @@ async function safeCopy(text: string): Promise<boolean> {
 export default function TestnetSerialPage({ serial, record, origin }: PageProps) {
   const ASSET_VERSION = "final";
 
-  // Always show baked card (stable, no server-side image endpoint)
   const bakedCardPath = `/checks/testnet/${encodeURIComponent(
     serial
   )}.png?v=${ASSET_VERSION}`;
 
-  // Page URL the QR should point to
   const pageUrl = `${origin}/testnet/${encodeURIComponent(serial)}`;
-
-  // Use baked image for OG (stable)
   const ogImageUrl = `${origin}${bakedCardPath}`;
 
   const title = `Checks Explorer Testnet • ${serial}`;
@@ -128,7 +124,6 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
   const status = record ? getStatus(record) : null;
 
-  // Generate QR client-side only (prevents SSR issues)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -235,7 +230,9 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
               {qrDataUrl ? (
                 <div className="qrWrap" aria-label="QR code">
-                  <img className="qrImg" src={qrDataUrl} alt="QR code" />
+                  <div className="qrPlate">
+                    <img className="qrImg" src={qrDataUrl} alt="QR code" />
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -276,7 +273,6 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       className={`copyBtn ${copiedKey === "contract" ? "copied" : ""}`}
                       onClick={() => copyWithFeedback("contract", record.contract)}
                       type="button"
-                      title="Copy contract address"
                     >
                       {labelFor("contract", "Copy")}
                     </button>
@@ -286,7 +282,6 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       href={polyscanAddr(record.contract)}
                       target="_blank"
                       rel="noreferrer"
-                      title="Open contract in Polygonscan"
                     >
                       Open in Polygonscan
                     </a>
@@ -375,7 +370,9 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
                         <button
                           className={`copyBtn ${copiedKey === "transfer" ? "copied" : ""}`}
-                          onClick={() => copyWithFeedback("transfer", record.transferTx || "")}
+                          onClick={() =>
+                            copyWithFeedback("transfer", record.transferTx || "")
+                          }
                           type="button"
                         >
                           {labelFor("transfer", "Copy")}
@@ -570,20 +567,25 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           display: block;
         }
 
-        /* QR overlay container: same plate size, LESS padding so QR fills more */
+        /* Mobile-safe square wrapper for QR (no aspect-ratio bugs) */
         .qrWrap {
           position: absolute;
           left: 72.9167%;
           top: 45%;
           width: 23.3333%;
-          aspect-ratio: 1 / 1;
-          height: auto;
+        }
 
+        .qrWrap::before {
+          content: "";
+          display: block;
+          padding-top: 100%;
+        }
+
+        .qrPlate {
+          position: absolute;
+          inset: 0;
           background: #ffffff;
-
-          /* Reduced padding (previous was 10–16px) */
           padding: clamp(6px, 0.8vw, 10px);
-
           box-sizing: border-box;
           border-radius: 12px;
         }
