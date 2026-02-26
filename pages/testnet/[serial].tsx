@@ -570,7 +570,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           display: block;
         }
 
-        /* QR overlay container: restores the white border/plate */
+        /* QR overlay container: same plate size, LESS padding so QR fills more */
         .qrWrap {
           position: absolute;
           left: 72.9167%;
@@ -580,7 +580,10 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           height: auto;
 
           background: #ffffff;
-          padding: clamp(10px, 1.2vw, 16px);
+
+          /* Reduced padding (previous was 10–16px) */
+          padding: clamp(6px, 0.8vw, 10px);
+
           box-sizing: border-box;
           border-radius: 12px;
         }
