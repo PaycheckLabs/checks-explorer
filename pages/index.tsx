@@ -6,10 +6,13 @@ import serialsJson from "../data/testnet-serials.json";
 import { isValidSerialFormat, normalizeSerial } from "../lib/serial";
 
 type SerialRecord = {
+  checkType?: "Payment" | "Vesting" | "Staking" | string;
+
   chainId: number;
   network: string;
   contract: string;
   tokenId: number;
+
   mintTx?: string;
   transferTx?: string;
   redeemTx?: string;
@@ -20,7 +23,7 @@ type SerialRecord = {
 function getStatus(r: SerialRecord) {
   if (r.voidTx) return { label: "Voided", tone: "bad" as const };
   if (r.redeemTx) return { label: "Redeemed", tone: "good" as const };
-  if (r.claimableAt) return { label: "Postdated", tone: "warn" as const };
+  if (r.claimableAt) return { label: "Post-dated", tone: "warn" as const };
   return { label: "Active", tone: "neutral" as const };
 }
 
@@ -34,16 +37,40 @@ export default function Home() {
     return Object.entries(serials)
       .map(([serial, record]) => {
         const status = getStatus(record);
-        return { serial, record, status };
+        const checkType = record.checkType || "Payment";
+        return { serial, record: { ...record, checkType }, status };
       })
+      // "Newest" approximation until we index timestamps:
       .sort((a, b) => (b.record.tokenId || 0) - (a.record.tokenId || 0));
   }, []);
+
+  const itemsPerPage = 10;
+
+  const currentPage = useMemo(() => {
+    const raw = router.query.page;
+    const n = typeof raw === "string" ? parseInt(raw, 10) : 1;
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }, [router.query.page]);
+
+  const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
+
+  const page = Math.min(currentPage, totalPages);
+  const start = (page - 1) * itemsPerPage;
+  const visible = items.slice(start, start + itemsPerPage);
+
+  function setPage(next: number) {
+    const p = Math.max(1, Math.min(totalPages, next));
+    router.push(
+      { pathname: "/", query: p === 1 ? {} : { page: String(p) } },
+      undefined,
+      { shallow: true }
+    );
+  }
 
   function go(serialRaw: string) {
     const normalized = normalizeSerial(serialRaw);
     if (!normalized) return;
 
-    // Keep UX friendly: show a message instead of a 404.
     if (!isValidSerialFormat(normalized)) {
       setError("Serial format looks invalid. Example: FMV-8427BC-UK45");
       return;
@@ -89,42 +116,83 @@ export default function Home() {
         {error ? <div className="error">{error}</div> : null}
 
         <div className="hint">
-          Tip: Testnet serial routes live under <code>/testnet/&lt;serial&gt;</code>.
+          Testnet serial routes live under <code>/testnet/&lt;serial&gt;</code>.
         </div>
       </section>
 
       <section className="section">
         <div className="sectionHeader">
-          <h2 className="h2">Published testnet checks</h2>
+          <h2 className="h2">Recent Checks</h2>
           <div className="muted">
             Curated list driven by <code>data/testnet-serials.json</code>.
           </div>
         </div>
 
-        {items.length === 0 ? (
-          <div className="muted">No serials are published yet.</div>
+        {visible.length === 0 ? (
+          <div className="muted">No checks are listed yet.</div>
         ) : (
           <div className="list">
-            {items.map(({ serial, record, status }) => (
-              <Link key={serial} href={`/testnet/${serial}`} className="item">
-                <div className="itemLeft">
-                  <div className="serial">{serial}</div>
-                  <div className="meta">
-                    TokenId {record.tokenId} · {record.network} ({record.chainId})
+            {visible.map(({ serial, record, status }) => (
+              <Link
+                key={serial}
+                href={`/testnet/${serial}`}
+                passHref
+                legacyBehavior
+              >
+                <a className="item">
+                  <div className="itemLeft">
+                    <div className="serial">{serial}</div>
+                    <div className="meta">
+                      <span className="typePill">{record.checkType}</span>
+                      <span className="sep">·</span>
+                      TokenId {record.tokenId}
+                      <span className="sep">·</span>
+                      {record.network} ({record.chainId})
+                    </div>
                   </div>
-                </div>
 
-                <div className={`status ${status.tone}`} aria-label="status badge">
-                  {status.label}
-                </div>
+                  <div className={`status ${status.tone}`} aria-label="status badge">
+                    {status.label}
+                  </div>
+                </a>
               </Link>
             ))}
           </div>
         )}
+
+        {totalPages > 1 ? (
+          <div className="pager" aria-label="pagination">
+            <button
+              className="pagerBtn"
+              onClick={() => setPage(page - 1)}
+              disabled={page <= 1}
+              type="button"
+            >
+              ← Prev
+            </button>
+
+            <div className="pagerText">
+              Page <span className="strong">{page}</span> of{" "}
+              <span className="strong">{totalPages}</span>
+            </div>
+
+            <button
+              className="pagerBtn"
+              onClick={() => setPage(page + 1)}
+              disabled={page >= totalPages}
+              type="button"
+            >
+              Next →
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <footer className="footer">
-        <span className="muted">Powered by Checks</span>
+        <div className="muted">Powered by Checks</div>
+        <div className="tip">
+          Tip: This is an early explorer view. Full experience coming soon.
+        </div>
       </footer>
 
       <style jsx>{`
@@ -224,11 +292,11 @@ export default function Home() {
           gap: 12px;
           align-items: baseline;
           flex-wrap: wrap;
-          margin-bottom: 12px;
+          margin-bottom: 14px;
         }
 
         .section {
-          margin-top: 16px;
+          margin-top: 10px;
         }
 
         .h2 {
@@ -245,17 +313,17 @@ export default function Home() {
         .list {
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          gap: 12px;
         }
 
         .item {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 12px;
+          gap: 14px;
           border: 1px solid #e5e7eb;
           border-radius: 14px;
-          padding: 12px 14px;
+          padding: 14px 16px;
           text-decoration: none;
           color: inherit;
           background: #ffffff;
@@ -268,12 +336,33 @@ export default function Home() {
         .serial {
           font-weight: 900;
           letter-spacing: 0.2px;
+          font-size: 15px;
         }
 
         .meta {
-          margin-top: 2px;
+          margin-top: 6px;
           color: #64748b;
           font-size: 13px;
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .typePill {
+          display: inline-flex;
+          align-items: center;
+          padding: 4px 8px;
+          border-radius: 999px;
+          border: 1px solid #e5e7eb;
+          background: #f8fafc;
+          color: #111827;
+          font-weight: 900;
+          font-size: 12px;
+        }
+
+        .sep {
+          color: #94a3b8;
         }
 
         .status {
@@ -285,6 +374,7 @@ export default function Home() {
           background: #f8fafc;
           color: #111827;
           white-space: nowrap;
+          flex: 0 0 auto;
         }
 
         .status.good {
@@ -300,10 +390,59 @@ export default function Home() {
           background: rgba(239, 68, 68, 0.12);
         }
 
+        .pager {
+          margin-top: 18px;
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .pagerBtn {
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          border-radius: 12px;
+          padding: 10px 12px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .pagerBtn:hover {
+          background: #f8fafc;
+        }
+
+        .pagerBtn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .pagerText {
+          color: #64748b;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .strong {
+          color: #111827;
+          font-weight: 900;
+        }
+
         .footer {
           margin-top: 34px;
           padding-top: 18px;
           border-top: 1px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: baseline;
+          flex-wrap: wrap;
+        }
+
+        .tip {
+          color: #64748b;
+          font-size: 13px;
         }
       `}</style>
     </main>
