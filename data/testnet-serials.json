@@ -26,14 +26,14 @@
     "voidTx": "0x8e2480ac6372f5522fb39152616bb9de1c7c3cedf0eb2828d88b6627855b29437",
     "claimableAt": 1771656447
   },
-
   "FMV-8427BC-UK45": {
-    "chainId": 80002,
-    "network": "Polygon Amoy",
-    "contract": "0x8c6Ed6A6dce49a299a0226d3E648CcaA3ce8D7Fc",
-    "tokenId": 2,
-    "mintTx": "0x08ac3026c85d37bd3b4b68de2b4933d6e6e64a9ff236d3b2033236b1273a0ed3",
-    "transferTx": "0x9bad56380db5504cb258a58017e62ead3259ecbe2a984eab4dd5eec9b484368c",
-    "redeemTx": "0xcb4a3c18dea22459a7813c33d868b67a4119e6f45130190337800694f1a99b4c"
+  "checkType": "Payment",
+  "chainId": 80002,
+  "network": "Polygon Amoy",
+  "contract": "0x8c6Ed6A6dce49a299a0226d3E648CcaA3ce8D7Fc",
+  "tokenId": 2,
+  "mintTx": "0x...",
+  "transferTx": "0x...",
+  "redeemTx": "0x..."
   }
 }
