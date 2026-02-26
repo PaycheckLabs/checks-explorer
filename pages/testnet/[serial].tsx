@@ -117,7 +117,9 @@ async function safeCopy(text: string): Promise<boolean> {
 export default function TestnetSerialPage({ serial, record, origin }: PageProps) {
   const IMAGE_VERSION = "final";
 
-  const imagePath = `/api/checks/image/${encodeURIComponent(serial)}?v=${IMAGE_VERSION}`;
+  const imagePath = `/api/checks/image/${encodeURIComponent(
+    serial
+  )}?v=${IMAGE_VERSION}`;
   const pageUrl = `${origin}/testnet/${encodeURIComponent(serial)}`;
   const ogImageUrl = `${origin}${imagePath}`;
 
@@ -194,7 +196,10 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
             </div>
 
             {status ? (
-              <div className={`status ${status.tone}`} title="Status derived from proof links">
+              <div
+                className={`status ${status.tone}`}
+                title="Status derived from proof links"
+              >
                 <span className="statusLabel">Status</span>
                 <span className="statusValue">{status.label}</span>
               </div>
@@ -241,7 +246,9 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
                   <div className="btnRow">
                     <button
-                      className={`copyBtn ${copiedKey === "contract" ? "copied" : ""}`}
+                      className={`copyBtn ${
+                        copiedKey === "contract" ? "copied" : ""
+                      }`}
                       onClick={() => copyWithFeedback("contract", record.contract)}
                       type="button"
                       title="Copy contract address"
@@ -270,10 +277,13 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                   <div className="row">
                     <div className="label">Post-dated until</div>
                     <div>
-                      <div className="mono">{formatUtcDateTime(record.claimableAt)}</div>
+                      <div className="mono">
+                        {formatUtcDateTime(record.claimableAt)}
+                      </div>
                       {nowSec ? (
                         <div className="mutedSmall" suppressHydrationWarning>
-                          Claimable in {formatTimeUntil(record.claimableAt, nowSec)}
+                          Claimable in{" "}
+                          {formatTimeUntil(record.claimableAt, nowSec)}
                         </div>
                       ) : null}
                       {record.voidTx ? (
@@ -295,7 +305,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       <div className="label">Mint</div>
                       <div className="inline">
                         {isTxHash(record.mintTx) ? (
-                          <a className="monoLink" href={polyscanTx(record.mintTx)} target="_blank" rel="noreferrer">
+                          <a
+                            className="monoLink"
+                            href={polyscanTx(record.mintTx)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             {record.mintTx}
                           </a>
                         ) : (
@@ -305,7 +320,9 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                         )}
 
                         <button
-                          className={`copyBtn ${copiedKey === "mint" ? "copied" : ""}`}
+                          className={`copyBtn ${
+                            copiedKey === "mint" ? "copied" : ""
+                          }`}
                           onClick={() => copyWithFeedback("mint", record.mintTx || "")}
                           type="button"
                         >
@@ -320,7 +337,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       <div className="label">Transfer</div>
                       <div className="inline">
                         {isTxHash(record.transferTx) ? (
-                          <a className="monoLink" href={polyscanTx(record.transferTx)} target="_blank" rel="noreferrer">
+                          <a
+                            className="monoLink"
+                            href={polyscanTx(record.transferTx)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             {record.transferTx}
                           </a>
                         ) : (
@@ -330,8 +352,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                         )}
 
                         <button
-                          className={`copyBtn ${copiedKey === "transfer" ? "copied" : ""}`}
-                          onClick={() => copyWithFeedback("transfer", record.transferTx || "")}
+                          className={`copyBtn ${
+                            copiedKey === "transfer" ? "copied" : ""
+                          }`}
+                          onClick={() =>
+                            copyWithFeedback("transfer", record.transferTx || "")
+                          }
                           type="button"
                         >
                           {labelFor("transfer", "Copy")}
@@ -345,7 +371,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       <div className="label">Redeem</div>
                       <div className="inline">
                         {isTxHash(record.redeemTx) ? (
-                          <a className="monoLink" href={polyscanTx(record.redeemTx)} target="_blank" rel="noreferrer">
+                          <a
+                            className="monoLink"
+                            href={polyscanTx(record.redeemTx)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             {record.redeemTx}
                           </a>
                         ) : (
@@ -355,7 +386,9 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                         )}
 
                         <button
-                          className={`copyBtn ${copiedKey === "redeem" ? "copied" : ""}`}
+                          className={`copyBtn ${
+                            copiedKey === "redeem" ? "copied" : ""
+                          }`}
                           onClick={() => copyWithFeedback("redeem", record.redeemTx || "")}
                           type="button"
                         >
@@ -370,7 +403,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       <div className="label">Void</div>
                       <div className="inline">
                         {isTxHash(record.voidTx) ? (
-                          <a className="monoLink" href={polyscanTx(record.voidTx)} target="_blank" rel="noreferrer">
+                          <a
+                            className="monoLink"
+                            href={polyscanTx(record.voidTx)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             {record.voidTx}
                           </a>
                         ) : (
@@ -380,7 +418,9 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                         )}
 
                         <button
-                          className={`copyBtn ${copiedKey === "void" ? "copied" : ""}`}
+                          className={`copyBtn ${
+                            copiedKey === "void" ? "copied" : ""
+                          }`}
                           onClick={() => copyWithFeedback("void", record.voidTx || "")}
                           type="button"
                         >
@@ -506,7 +546,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
         .card {
           width: 100%;
-          border-radius: 16px;
+          border-radius: 4px; /* <-- 4px corner radius */
           box-shadow: 0 12px 34px rgba(0, 0, 0, 0.08);
           display: block;
         }
