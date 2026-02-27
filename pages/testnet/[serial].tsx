@@ -595,7 +595,7 @@ const baseStyles = `
   .qrOuter {
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
-    top: 129px;   /* tuned */
+    top: 131px;   /* tuned */
     width: 108px;
     height: 108px;
     background: #ffffff;
@@ -732,7 +732,7 @@ const baseStyles = `
 
     .qrOuter {
       right: 16px;
-      top: 121px;
+      top: 123px;
       width: 104px;
       height: 104px;
       border-radius: 10px;
