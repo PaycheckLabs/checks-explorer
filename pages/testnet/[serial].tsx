@@ -36,464 +36,559 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
 
   if (!isValidSerialFormat(normalized)) return { notFound: true };
 
-  const record = (serials as Record<string, SerialRecord | undefined>)[normalized] || null;
+  const record =
+    (serials as Record<string, SerialRecord | undefined>)[normalized] ?? null;
 
-  const proto = (ctx.req.headers["x-forwarded-proto"] as string) || "https";
+  const proto =
+    (ctx.req.headers["x-forwarded-proto"] as string) ||
+    (ctx.req.headers["x-forwarded-protocol"] as string) ||
+    "https";
   const host = ctx.req.headers.host || "explorer.checks.xyz";
   const origin = `${proto}://${host}`;
 
   return { props: { serial: normalized, record, origin } };
 };
 
-function polyscanTx(tx: string) {
+function polygonscanTx(tx: string) {
   return `https://amoy.polygonscan.com/tx/${tx}`;
 }
 
-function polyscanAddress(addr: string) {
+function polygonscanAddr(addr: string) {
   return `https://amoy.polygonscan.com/address/${addr}`;
 }
 
-function normalizeTxHash(input?: string) {
-  if (!input) return "";
-  const trimmed = input.trim();
-
-  // If it’s 64 hex chars without 0x, add it.
-  if (!trimmed.startsWith("0x") && /^[0-9a-fA-F]{64}$/.test(trimmed)) {
-    return `0x${trimmed}`;
-  }
-
-  return trimmed;
+/**
+ * Makes tx parsing forgiving:
+ * - Accepts raw tx hashes
+ * - Accepts URLs that include /tx/0x...
+ * - Accepts strings with extra text, as long as they contain a 0x{64} hash
+ */
+function normalizeTxHash(input?: string | null): string | null {
+  if (!input) return null;
+  const s = String(input).trim();
+  const m = s.match(/0x[a-fA-F0-9]{64}/);
+  if (!m) return null;
+  return `0x${m[0].slice(2).toLowerCase()}`;
 }
 
-function isTxHash(input?: string) {
-  if (!input) return false;
-  const tx = normalizeTxHash(input);
-  return /^0x[0-9a-fA-F]{64}$/.test(tx);
+function shortAddr(addr: string) {
+  if (!addr?.startsWith("0x") || addr.length < 10) return addr;
+  return `${addr.slice(0, 4)}…${addr.slice(-5)}`;
 }
 
 export default function SerialPage({ serial, record, origin }: PageProps) {
-  const [copyState, setCopyState] = useState<Record<string, string>>({});
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Prefer API-rendered image (works even when baked PNGs don’t exist).
-  const apiCardPath = `/api/checks/image/${serial}?v=final`;
-  const bakedCardPath = `/checks/testnet/${serial}.png?v=final`;
-
-  const [cardSrc, setCardSrc] = useState(apiCardPath);
-
-  // If serial changes, reset to API path.
   useEffect(() => {
-    setCardSrc(apiCardPath);
-  }, [apiCardPath]);
+    if (!copiedKey) return;
+    const t = setTimeout(() => setCopiedKey(null), 1200);
+    return () => clearTimeout(t);
+  }, [copiedKey]);
 
-  const openImageHref = `${origin}${apiCardPath}`;
+  const cardImageUrl = useMemo(
+    () => `${origin}/api/checks/image/${serial}?v=final`,
+    [origin, serial]
+  );
 
-  const tx = useMemo(() => {
-    if (!record) return null;
-    return {
-      mint: normalizeTxHash(record.mintTx),
-      transfer: normalizeTxHash(record.transferTx),
-      redeem: normalizeTxHash(record.redeemTx),
-      void: normalizeTxHash(record.voidTx),
-    };
-  }, [record]);
+  const mintTx = normalizeTxHash(record?.mintTx);
+  const transferTx = normalizeTxHash(record?.transferTx);
+  const redeemTx = normalizeTxHash(record?.redeemTx);
+  const voidTx = normalizeTxHash(record?.voidTx);
 
-  async function copyWithFeedback(key: string, value: string) {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyState((s) => ({ ...s, [key]: "Copied" }));
-      window.setTimeout(() => setCopyState((s) => ({ ...s, [key]: "" })), 900);
-    } catch {
-      setCopyState((s) => ({ ...s, [key]: "Failed" }));
-      window.setTimeout(() => setCopyState((s) => ({ ...s, [key]: "" })), 900);
-    }
+  const status = useMemo(() => {
+    if (!record) return "Unknown";
+    if (voidTx) return "Voided";
+    if (redeemTx) return "Redeemed";
+    return "Active";
+  }, [record, voidTx, redeemTx]);
+
+  const isVoided = status === "Voided";
+
+  function copy(text: string, key: string) {
+    void navigator.clipboard.writeText(text);
+    setCopiedKey(key);
   }
-
-  function labelFor(key: string, fallback: string) {
-    return copyState[key] || fallback;
-  }
-
-  if (!record) {
-    return (
-      <>
-        <Head>
-          <title>Checks Explorer — {serial}</title>
-        </Head>
-        <main className="wrap">
-          <div className="topRow">
-            <Link className="back" href="/">
-              ← Checks Explorer
-            </Link>
-          </div>
-
-          <h1 className="h1">{serial}</h1>
-          <p className="muted">Serial not found in curated list.</p>
-        </main>
-      </>
-    );
-  }
-
-  const status = record.voidTx ? "Voided" : record.redeemTx ? "Redeemed" : "Active";
-
-  // For consistent UI:
-  // - Normal checks: show Mint / Transfer / Redeem (Redeem may be Not available if not redeemed yet)
-  // - Voided checks: show Mint / Transfer / Void
-  const showVoid = Boolean(record.voidTx);
-  const showRedeem = !showVoid;
 
   return (
     <>
       <Head>
-        <title>Checks Explorer — {serial}</title>
+        <title>{serial} • Checks Explorer</title>
+
+        {/* Kanit font (restore original feel) */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700;800;900&display=swap"
+          rel="stylesheet"
+        />
       </Head>
 
-      <main className="wrap">
-        <div className="topRow">
-          <Link className="back" href="/">
-            ← Checks Explorer
-          </Link>
+      <div className="page">
+        <div className="wrap">
+          <div className="topbar">
+            <Link href="/" className="backLink">
+              ← Checks Explorer
+            </Link>
 
-          <button
-            className="copyPage"
-            type="button"
-            onClick={() => copyWithFeedback("page", `${origin}/testnet/${serial}`)}
-          >
-            {labelFor("page", "Copy page link")}
-          </button>
-        </div>
+            <button
+              className={`copyPageBtn ${
+                copiedKey === "page" ? "copied" : ""
+              }`}
+              onClick={() => copy(`${origin}/testnet/${serial}`, "page")}
+            >
+              Copy page link
+            </button>
+          </div>
 
-        <h1 className="h1">{serial}</h1>
+          <h1 className="h1">{serial}</h1>
 
-        <div className="chipsRow">
-          <div className="chip">Testnet</div>
-          <div className="chip">Polygon Amoy (80002)</div>
-          <div className={`chip status ${status.toLowerCase()}`}>Status {status}</div>
-        </div>
+          <div className="badges">
+            <span className="pill">Testnet</span>
+            <span className="dot">•</span>
+            <span className="pill">Polygon Amoy (80002)</span>
+            <span className={`statusPill ${isVoided ? "statusRed" : "statusGreen"}`}>
+              Status&nbsp;&nbsp;<strong>{status}</strong>
+            </span>
+          </div>
 
-        <div className="grid">
-          <section className="left">
-            <div className="subLabel">Check card {serial}</div>
+          <div className="grid">
+            <div>
+              <div className="cardLabelRow">
+                <span className="labelSm">Check card {serial}</span>
+              </div>
 
-            <div className="cardWrap">
-              <img
-                className="cardImg"
-                src={cardSrc}
-                alt={`Check card ${serial}`}
-                onError={() => {
-                  // Fallback to baked PNG if the API route fails for any reason.
-                  if (cardSrc !== bakedCardPath) setCardSrc(bakedCardPath);
-                }}
-              />
-            </div>
+              <div className="cardWrap">
+                {/* Use img for now, keeps foundation intact */}
+                {/* If the API returns 500, this will not render the image */}
+                <img className="cardImg" src={cardImageUrl} alt={`Check card ${serial}`} />
+              </div>
 
-            <div className="actions">
-              <a className="actionLink" href={openImageHref} target="_blank" rel="noreferrer">
-                Open image
-              </a>
-              <span className="dot">·</span>
-              <a className="actionLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
-                Open page
-              </a>
-            </div>
-          </section>
+              <div className="btnRow">
+                <a className="openLink" href={cardImageUrl} target="_blank" rel="noreferrer">
+                  Open image
+                </a>
+                <span className="dot">•</span>
+                <a className="openLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
+                  Open page
+                </a>
+              </div>
 
-          <section className="right">
-            <h2 className="h2">Details</h2>
-
-            <div className="detailRow">
-              <div className="k">Network</div>
-              <div className="v">{record.network} (chainId {record.chainId})</div>
-            </div>
-
-            <div className="detailRow">
-              <div className="k">Contract</div>
-              <div className="v">
-                <div className="inline">
-                  <span className="mono">{record.contract}</span>
-                  <button className="copyBtn" onClick={() => copyWithFeedback("contract", record.contract)} type="button">
-                    {labelFor("contract", "Copy")}
-                  </button>
-                  <a className="btn" href={polyscanAddress(record.contract)} target="_blank" rel="noreferrer">
-                    Open in Polygonscan
-                  </a>
-                </div>
+              <div className="tip">
+                Tip: This is an early explorer view. Full experience coming soon.
               </div>
             </div>
 
-            <div className="detailRow">
-              <div className="k">TokenID</div>
-              <div className="v">{record.tokenId}</div>
+            <div>
+              <h2 className="h2">Details</h2>
+
+              <div className="row">
+                <div className="label">Network</div>
+                <div>Polygon Amoy (chainId 80002)</div>
+              </div>
+
+              <div className="row">
+                <div className="label">Contract</div>
+                <div className="inline">
+                  <span className="mono">{record?.contract || "Unknown"}</span>
+                  {record?.contract ? (
+                    <>
+                      <button
+                        className={`copyBtn ${
+                          copiedKey === "contract" ? "copied" : ""
+                        }`}
+                        onClick={() => copy(record.contract, "contract")}
+                      >
+                        Copy
+                      </button>
+                      <a
+                        className="openBtn"
+                        href={polygonscanAddr(record.contract)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in Polygonscan
+                      </a>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="row">
+                <div className="label">TokenID</div>
+                <div>{record?.tokenId ?? "Unknown"}</div>
+              </div>
+
+              {isVoided && record?.claimableAt ? (
+                <div className="row">
+                  <div className="label">Post-dated until</div>
+                  <div>
+                    {new Date(record.claimableAt * 1000).toISOString().replace("T", " ").slice(0, 16)}{" "}
+                    UTC
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="divider" />
+
+              <h2 className="h2">Links</h2>
+
+              <ul className="ul">
+                <li className="li">
+                  <div className="label">Mint</div>
+                  <TxRow
+                    tx={mintTx}
+                    copiedKey={copiedKey}
+                    copy={copy}
+                    k="mint"
+                  />
+                </li>
+
+                <li className="li">
+                  <div className="label">Transfer</div>
+                  {/* If missing, show Not available (no red “broken” hash) */}
+                  <TxRow
+                    tx={transferTx}
+                    copiedKey={copiedKey}
+                    copy={copy}
+                    k="transfer"
+                    emptyText="Not available"
+                  />
+                </li>
+
+                <li className="li">
+                  <div className="label">{isVoided ? "Void" : "Redeem"}</div>
+                  <TxRow
+                    tx={isVoided ? voidTx : redeemTx}
+                    copiedKey={copiedKey}
+                    copy={copy}
+                    k={isVoided ? "void" : "redeem"}
+                    emptyText="Not available"
+                  />
+                </li>
+              </ul>
             </div>
+          </div>
 
-            <div className="divider" />
-
-            <h2 className="h2">Links</h2>
-
-            <ul className="linksList">
-              <li className="li">
-                <div className="label">Mint</div>
-                <div className="inline">
-                  {tx?.mint ? (
-                    isTxHash(tx.mint) ? (
-                      <a className="monoLink" href={polyscanTx(tx.mint)} target="_blank" rel="noreferrer">
-                        {tx.mint}
-                      </a>
-                    ) : (
-                      <span className="mono invalid">{tx.mint}</span>
-                    )
-                  ) : (
-                    <span className="muted">Not available</span>
-                  )}
-                  <button className="copyBtn" onClick={() => copyWithFeedback("mint", tx?.mint || "")} type="button">
-                    {labelFor("mint", "Copy")}
-                  </button>
-                </div>
-              </li>
-
-              <li className="li">
-                <div className="label">Transfer</div>
-                <div className="inline">
-                  {tx?.transfer ? (
-                    isTxHash(tx.transfer) ? (
-                      <a className="monoLink" href={polyscanTx(tx.transfer)} target="_blank" rel="noreferrer">
-                        {tx.transfer}
-                      </a>
-                    ) : (
-                      <span className="mono invalid">{tx.transfer}</span>
-                    )
-                  ) : (
-                    <span className="muted">Not available</span>
-                  )}
-                  <button className="copyBtn" onClick={() => copyWithFeedback("transfer", tx?.transfer || "")} type="button">
-                    {labelFor("transfer", "Copy")}
-                  </button>
-                </div>
-              </li>
-
-              {showRedeem ? (
-                <li className="li">
-                  <div className="label">Redeem</div>
-                  <div className="inline">
-                    {tx?.redeem ? (
-                      isTxHash(tx.redeem) ? (
-                        <a className="monoLink" href={polyscanTx(tx.redeem)} target="_blank" rel="noreferrer">
-                          {tx.redeem}
-                        </a>
-                      ) : (
-                        <span className="mono invalid">{tx.redeem}</span>
-                      )
-                    ) : (
-                      <span className="muted">Not available</span>
-                    )}
-                    <button className="copyBtn" onClick={() => copyWithFeedback("redeem", tx?.redeem || "")} type="button">
-                      {labelFor("redeem", "Copy")}
-                    </button>
-                  </div>
-                </li>
-              ) : (
-                <li className="li">
-                  <div className="label">Void</div>
-                  <div className="inline">
-                    {tx?.void ? (
-                      isTxHash(tx.void) ? (
-                        <a className="monoLink" href={polyscanTx(tx.void)} target="_blank" rel="noreferrer">
-                          {tx.void}
-                        </a>
-                      ) : (
-                        <span className="mono invalid">{tx.void}</span>
-                      )
-                    ) : (
-                      <span className="muted">Not available</span>
-                    )}
-                    <button className="copyBtn" onClick={() => copyWithFeedback("void", tx?.void || "")} type="button">
-                      {labelFor("void", "Copy")}
-                    </button>
-                  </div>
-                </li>
-              )}
-            </ul>
-          </section>
+          <div className="footer">
+            <span className="muted">Powered by Checks</span>
+            <span className="muted">
+              Tip: TokenIDs may repeat due to early multi-contract testing.
+            </span>
+          </div>
         </div>
+      </div>
 
-        <div className="footerNote">Tip: This is an early explorer view. Full experience coming soon.</div>
+      <style jsx>{`
+        .page {
+          min-height: 100vh;
+          background: #ffffff;
+          color: #0f172a;
+          font-family: "Kanit", system-ui, -apple-system, Segoe UI, Roboto,
+            Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        }
 
-        <style jsx>{`
-          .wrap {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 24px 18px 40px;
-          }
-          .topRow {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .back {
-            color: #4f46e5;
-            font-weight: 700;
-            text-decoration: none;
-          }
-          .copyPage {
-            border: 1px solid #e5e7eb;
-            background: #fff;
-            border-radius: 999px;
-            padding: 8px 12px;
-            font-weight: 700;
-            cursor: pointer;
-          }
-          .h1 {
-            margin: 14px 0 10px;
-            font-size: 48px;
-            letter-spacing: -0.02em;
-          }
-          .chipsRow {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 18px;
-          }
-          .chip {
-            border: 1px solid #e5e7eb;
-            border-radius: 999px;
-            padding: 8px 12px;
-            font-weight: 700;
-            background: #fff;
-          }
-          .status.redeemed {
-            background: #dcfce7;
-            border-color: #86efac;
-          }
-          .status.voided {
-            background: #fee2e2;
-            border-color: #fca5a5;
-          }
+        .wrap {
+          max-width: 1040px;
+          margin: 0 auto;
+          padding: 34px 22px 48px;
+        }
+
+        .topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 18px;
+          margin-bottom: 18px;
+        }
+
+        .backLink {
+          color: #4f46e5;
+          text-decoration: none;
+          font-weight: 800;
+        }
+
+        .backLink:hover {
+          text-decoration: underline;
+        }
+
+        .copyPageBtn {
+          appearance: none;
+          -webkit-appearance: none;
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          color: #0f172a;
+          border-radius: 999px;
+          padding: 8px 14px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+          line-height: 1;
+        }
+
+        .copyPageBtn:hover {
+          background: #f8fafc;
+        }
+
+        .h1 {
+          font-size: 54px;
+          line-height: 1.02;
+          margin: 0 0 14px 0;
+          font-weight: 900;
+          letter-spacing: -0.02em;
+        }
+
+        .badges {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+          margin-bottom: 22px;
+        }
+
+        .pill {
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          border-radius: 999px;
+          padding: 7px 12px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .statusPill {
+          border-radius: 999px;
+          padding: 7px 12px;
+          font-size: 13px;
+          font-weight: 800;
+          border: 1px solid transparent;
+        }
+
+        .statusGreen {
+          background: rgba(34, 197, 94, 0.15);
+          border-color: rgba(34, 197, 94, 0.35);
+        }
+
+        .statusRed {
+          background: rgba(239, 68, 68, 0.12);
+          border-color: rgba(239, 68, 68, 0.35);
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: 1.2fr 0.8fr;
+          gap: 34px;
+          align-items: start;
+        }
+
+        .cardLabelRow {
+          margin-bottom: 10px;
+        }
+
+        .labelSm {
+          color: #64748b;
+          font-weight: 900;
+          font-size: 14px;
+        }
+
+        .cardWrap {
+          border-radius: 16px;
+          overflow: hidden;
+          border: 1px solid #e5e7eb;
+          background: #f8fafc;
+        }
+
+        .cardImg {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+
+        .btnRow {
+          margin-top: 10px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .openLink {
+          color: #4f46e5;
+          text-decoration: underline;
+          font-weight: 800;
+          font-size: 14px;
+        }
+
+        .dot {
+          color: #94a3b8;
+        }
+
+        .h2 {
+          font-size: 28px;
+          margin: 0 0 14px 0;
+          font-weight: 900;
+        }
+
+        .row {
+          margin-bottom: 14px;
+        }
+
+        .label {
+          color: #64748b;
+          font-weight: 900;
+          margin-bottom: 6px;
+          font-size: 14px;
+        }
+
+        .divider {
+          margin: 18px 0 18px;
+          height: 1px;
+          background: #e5e7eb;
+        }
+
+        .ul {
+          margin: 0;
+          padding-left: 0;
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .li {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .inline {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .openBtn {
+          border: 1px solid rgba(79, 70, 229, 0.25);
+          background: rgba(79, 70, 229, 0.07);
+          color: #4f46e5;
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 900;
+          text-decoration: none;
+          line-height: 1;
+        }
+
+        .openBtn:hover {
+          background: rgba(79, 70, 229, 0.1);
+        }
+
+        .copyBtn {
+          appearance: none;
+          -webkit-appearance: none;
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          color: #111827;
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+          font-family: inherit;
+          line-height: 1;
+        }
+
+        .copyBtn:hover {
+          background: #f8fafc;
+        }
+
+        .copied {
+          border-color: rgba(34, 197, 94, 0.55) !important;
+          background: rgba(34, 197, 94, 0.12) !important;
+        }
+
+        .tip {
+          margin-top: 18px;
+          font-size: 14px;
+          color: #64748b;
+          text-align: left;
+        }
+
+        .footer {
+          margin-top: 34px;
+          padding-top: 18px;
+          border-top: 1px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          flex-wrap: wrap;
+        }
+
+        .muted {
+          color: #64748b;
+          font-weight: 600;
+        }
+
+        .monoLink {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
+          word-break: break-all;
+        }
+
+        @media (max-width: 1040px) {
           .grid {
-            display: grid;
-            grid-template-columns: 1.15fr 0.85fr;
-            gap: 28px;
-            align-items: start;
+            grid-template-columns: 1fr;
+            gap: 26px;
           }
-          @media (max-width: 900px) {
-            .grid {
-              grid-template-columns: 1fr;
-            }
-            .h1 {
-              font-size: 56px;
-            }
+
+          .h1 {
+            font-size: 44px;
           }
-          .subLabel {
-            color: #6b7280;
-            font-weight: 700;
-            margin-bottom: 8px;
-          }
-          .cardWrap {
-            width: 100%;
-            max-width: 680px;
-          }
-          .cardImg {
-            width: 100%;
-            height: auto;
-            display: block;
-            border-radius: 14px;
-          }
-          .actions {
-            margin-top: 10px;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-          }
-          .actionLink {
-            color: #4f46e5;
-            font-weight: 700;
-          }
-          .dot {
-            color: #9ca3af;
-          }
-          .h2 {
-            font-size: 28px;
-            margin: 0 0 10px;
-            letter-spacing: -0.01em;
-          }
-          .detailRow {
-            display: grid;
-            grid-template-columns: 120px 1fr;
-            gap: 12px;
-            padding: 10px 0;
-          }
-          .k {
-            color: #6b7280;
-            font-weight: 700;
-          }
-          .v {
-            font-weight: 700;
-          }
-          .inline {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-          }
-          .mono {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-weight: 800;
-          }
-          .monoLink {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-weight: 900;
-            color: #4f46e5;
-            text-decoration: none;
-          }
-          .invalid {
-            color: #dc2626;
-          }
-          .btn {
-            border: 1px solid #c7d2fe;
-            background: #eef2ff;
-            color: #3730a3;
-            border-radius: 999px;
-            padding: 8px 12px;
-            font-weight: 900;
-            text-decoration: none;
-          }
-          .copyBtn {
-            border: 1px solid #e5e7eb;
-            background: #fff;
-            border-radius: 999px;
-            padding: 6px 10px;
-            font-weight: 900;
-            cursor: pointer;
-          }
-          .divider {
-            height: 1px;
-            background: #e5e7eb;
-            margin: 16px 0;
-          }
-          .linksList {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-          }
-          .li {
-            padding: 12px 0;
-            border-bottom: 1px solid #f3f4f6;
-          }
-          .label {
-            color: #6b7280;
-            font-weight: 900;
-            margin-bottom: 6px;
-          }
-          .muted {
-            color: #6b7280;
-            font-weight: 800;
-          }
-          .footerNote {
-            margin-top: 18px;
-            color: #6b7280;
-            font-weight: 700;
-            font-size: 13px;
-          }
-        `}</style>
-      </main>
+        }
+      `}</style>
     </>
+  );
+}
+
+function TxRow({
+  tx,
+  copiedKey,
+  copy,
+  k,
+  emptyText = "Not available",
+}: {
+  tx: string | null;
+  copiedKey: string | null;
+  copy: (text: string, key: string) => void;
+  k: string;
+  emptyText?: string;
+}) {
+  if (!tx) {
+    return <div style={{ color: "#64748b", fontWeight: 700 }}>{emptyText}</div>;
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <a
+        className="monoLink"
+        href={polygonscanTx(tx)}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          color: "#4f46e5",
+          textDecoration: "underline",
+          fontWeight: 800,
+        }}
+      >
+        {tx}
+      </a>
+
+      <button
+        className={`copyBtn ${copiedKey === k ? "copied" : ""}`}
+        onClick={() => copy(tx, k)}
+        style={{ marginLeft: 0 }}
+      >
+        Copy
+      </button>
+    </div>
   );
 }
