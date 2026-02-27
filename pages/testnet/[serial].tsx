@@ -660,21 +660,21 @@ const baseStyles = `
   /* QR overlay positioning tuned for your card format */
   .qrOuter {
     position: absolute;
-    right: 26px;
-    top: 118px;
-    width: 118px;
-    height: 118px;
+    right: 30px;
+    top: 112px;
+    width: 112px;
+    height: 112px;
     background: #ffffff;
-    border-radius: 12px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.10);
   }
 
   .qrImg {
-    width: 96px;
-    height: 96px;
+    width: 90px;
+    height: 90px;
     border-radius: 8px;
     image-rendering: pixelated;
     display: block;
