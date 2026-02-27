@@ -57,11 +57,6 @@ function polygonscanAddress(addr: string) {
   return `https://amoy.polygonscan.com/address/${addr}`;
 }
 
-function shortAddr(addr: string) {
-  if (!addr) return "";
-  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
-}
-
 function normalizeTxHash(input?: string | null): string | null {
   if (!input) return null;
   const t = String(input).trim();
@@ -106,8 +101,7 @@ function msToHuman(ms: number) {
 }
 
 function getCardCandidates(serial: string) {
-  // We don’t know the exact public path in your deploy right now,
-  // so try the most likely ones in order.
+  // Try the most likely ones in order.
   return [`/checks/testnet/${serial}.png`, `/testnet/${serial}.png`, `/checks/${serial}.png`];
 }
 
@@ -140,7 +134,6 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
     setCardFailed(false);
     setCardSrc(null);
 
-    // try to find the first loadable image
     pickFirstLoadableImage(candidates).then((picked) => {
       if (!alive) return;
       if (picked) setCardSrc(picked);
@@ -174,9 +167,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
   const claimStatusText = useMemo(() => {
     if (!record) return null;
-    if (isVoided) {
-      return "This check was voided before it became claimable.";
-    }
+    if (isVoided) return "This check was voided before it became claimable.";
     if (claimableAtMs == null) return null;
     if (nowMs >= claimableAtMs) return "Claimable now.";
     return `Claimable in ${countdown}`;
@@ -354,7 +345,6 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                   <div className="label">TokenID</div>
                   <div className="valueRight">{record.tokenId}</div>
 
-                  {/* Post-dated / void details formatting */}
                   {(claimableAt != null || isVoided) && (
                     <>
                       {claimableAt != null && (
@@ -364,15 +354,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
                           <div className="label">Claim countdown</div>
                           <div className="valueRight">
-                            {claimableAtMs != null ? (
-                              nowMs >= claimableAtMs ? (
-                                "Claimable now"
-                              ) : (
-                                `Claimable in ${countdown}`
-                              )
-                            ) : (
-                              "—"
-                            )}
+                            {claimableAtMs != null ? (nowMs >= claimableAtMs ? "Claimable now" : `Claimable in ${countdown}`) : "—"}
                           </div>
 
                           <div className="label">Status</div>
@@ -396,18 +378,9 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
                 <ul className="ul">
                   <HashItem label="Mint" hash={normalizedMint} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  <HashItem
-                    label="Transfer"
-                    hash={normalizedTransfer}
-                    copiedKey={copiedKey}
-                    onCopy={copyToClipboard}
-                  />
+                  <HashItem label="Transfer" hash={normalizedTransfer} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   <HashItem label="Redeem" hash={normalizedRedeem} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  {/* For post-dated checks, void tx can replace redeem in practice,
-                      but we still show Redeem (if present) and show Void separately if it exists. */}
-                  {normalizedVoid && (
-                    <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  )}
+                  {normalizedVoid && <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />}
                 </ul>
               </div>
 
@@ -587,21 +560,11 @@ const baseStyles = `
     letter-spacing: -0.01em;
   }
 
-  .row {
-    margin-bottom: 14px;
-  }
-
   .label {
     color: #64748b;
     font-weight: 700;
     margin-bottom: 6px;
     font-size: 13px;
-  }
-
-  .divider {
-    margin: 16px 0;
-    height: 1px;
-    background: #e5e7eb;
   }
 
   .detailGrid {
@@ -630,13 +593,13 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — restore proportions to match prior “good” render */
+  /* QR overlay — move LEFT + DOWN and slightly larger to match original render */
   .qrOuter {
     position: absolute;
-    right: 30px;
-    top: 104px;
-    width: 104px;
-    height: 104px;
+    right: 52px; /* was too close to edge (caused clipping) */
+    top: 118px;  /* was too high */
+    width: 112px;
+    height: 112px;
     background: #ffffff;
     border-radius: 12px;
     border: 1px solid rgba(15, 23, 42, 0.06);
@@ -644,12 +607,13 @@ const baseStyles = `
     display: flex;
     align-items: center;
     justify-content: center;
+    pointer-events: none;
   }
 
   .qrImg {
-    width: 92px;
-    height: 92px;
-    border-radius: 10px;
+    width: 98px;
+    height: 98px;
+    border-radius: 6px; /* reduce corner clipping of QR modules */
     image-rendering: pixelated;
     display: block;
   }
@@ -714,7 +678,6 @@ const baseStyles = `
     gap: 6px;
   }
 
-  /* Prevent ugly wrapping; allow horizontal scroll instead */
   .hashLine,
   .hashLink {
     border: 1px solid #e5e7eb;
@@ -762,15 +725,18 @@ const baseStyles = `
     .title {
       font-size: 46px;
     }
+
     .qrOuter {
-      right: 18px;
-      top: 94px;
-      width: 100px;
-      height: 100px;
+      right: 38px;
+      top: 110px;
+      width: 108px;
+      height: 108px;
     }
+
     .qrImg {
-      width: 88px;
-      height: 88px;
+      width: 94px;
+      height: 94px;
+      border-radius: 6px;
     }
   }
 
