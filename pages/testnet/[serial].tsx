@@ -24,7 +24,7 @@ type PageProps = {
   origin: string;
 };
 
-export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => {
+export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const raw = String(ctx.params?.serial || "");
   const normalized = normalizeSerial(raw);
 
@@ -37,12 +37,10 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
 
   if (!isValidSerialFormat(normalized)) return { notFound: true };
 
-  const record =
-    (serials as Record<string, SerialRecord | undefined>)[normalized] ?? null;
+  const record = (serials as Record<string, SerialRecord>)[normalized] ?? null;
 
   // Build an origin for absolute OG URLs
-  const proto =
-    (ctx.req.headers["x-forwarded-proto"] as string) || "https";
+  const proto = (ctx.req.headers["x-forwarded-proto"] as string) || "https";
   const host = ctx.req.headers.host || "explorer.checks.xyz";
   const origin = `${proto}://${host}`;
 
@@ -50,6 +48,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
 };
 
 // ---------- helpers ----------
+
 function polygonscanTx(tx: string) {
   return `https://amoy.polygonscan.com/tx/${tx}`;
 }
@@ -95,10 +94,12 @@ function formatUtc(tsSeconds: number) {
 
 function msToHuman(ms: number) {
   if (ms <= 0) return "0m";
+
   const totalSeconds = Math.floor(ms / 1000);
   const mins = Math.floor(totalSeconds / 60);
   const hrs = Math.floor(mins / 60);
   const days = Math.floor(hrs / 24);
+
   if (days > 0) return `${days}d ${hrs % 24}h`;
   if (hrs > 0) return `${hrs}h ${mins % 60}m`;
   return `${mins}m`;
@@ -129,11 +130,12 @@ async function pickFirstLoadableImage(candidates: string[]): Promise<string | nu
 }
 
 // ---------- page ----------
+
 export default function SerialPage({ serial, record, origin }: PageProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [cardSrc, setCardSrc] = useState<string | null>(null);
   const [cardFailed, setCardFailed] = useState(false);
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const candidates = useMemo(() => getCardCandidates(serial), [serial]);
 
@@ -172,7 +174,6 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
   const claimableAt = record?.claimableAt ?? null;
   const claimableAtMs = claimableAt ? claimableAt * 1000 : null;
-
   const countdown =
     claimableAtMs != null ? msToHuman(claimableAtMs - nowMs) : null;
 
@@ -201,27 +202,27 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
       <>
         <Head>
           <title>{title}</title>
-          <meta name="robots" content="noindex" />
+          <meta name="robots" content="noindex,nofollow" />
         </Head>
-        <main className="page">
+
+        <div className="page">
           <div className="container">
             <div className="topBar">
-              <Link className="backLink" href="/">
+              <Link href="/" className="backLink">
                 ← Checks Explorer
               </Link>
             </div>
 
             <h1 className="title">{serial}</h1>
+
             <div className="panel">
-              <div className="row">
-                <div className="label">Not found</div>
-                <div className="muted">This serial isn’t in the curated testnet list.</div>
-              </div>
+              <h2 className="h2">Not found</h2>
+              <p className="muted">This serial isn’t in the curated testnet list.</p>
             </div>
           </div>
-        </main>
+        </div>
 
-        <style jsx>{baseStyles}</style>
+        <style jsx global>{baseStyles}</style>
       </>
     );
   }
@@ -230,25 +231,27 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
     <>
       <Head>
         <title>{title}</title>
-
+        <meta name="description" content="Checks Explorer testnet serial page." />
         <meta property="og:title" content={title} />
+        <meta property="og:description" content="Payment Checks v1 testnet serial page." />
         <meta property="og:image" content={ogImageUrl} />
+        <meta property="og:type" content="website" />
         <meta name="twitter:card" content="summary_large_image" />
       </Head>
 
-      <main className="page">
+      <div className="page">
         <div className="container">
           <div className="topBar">
-            <Link className="backLink" href="/">
+            <Link href="/" className="backLink">
               ← Checks Explorer
             </Link>
 
             <button
-              className="pillBtn"
+              className={`pillBtn ${copiedKey === "page" ? "copied" : ""}`}
               onClick={() => copyToClipboard(`${origin}/testnet/${serial}`, "page")}
               type="button"
             >
-              Copy page link
+              {copiedKey === "page" ? "Copied" : "Copy page link"}
             </button>
           </div>
 
@@ -261,9 +264,9 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
             <span className="chipStatus">
               <span className="chipLabel">Status</span>
               <span
-                className={
-                  isVoided ? "chipValue chipRed" : isRedeemed ? "chipValue chipGreen" : "chipValue"
-                }
+                className={`chipValue ${
+                  isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""
+                }`}
               >
                 {isVoided ? "Voided" : isRedeemed ? "Redeemed" : "Active"}
               </span>
@@ -272,128 +275,129 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
           <div className="grid">
             {/* LEFT: Card */}
-            <section className="panel">
-              <div className="cardWrap">
-                {cardSrc && (
-                  <>
-                    <img
-                      src={cardSrc}
-                      alt={`Check card ${serial}`}
-                      className="cardImg"
-                      draggable={false}
-                    />
-                    {/* QR overlay */}
-                    <div className="qrOuter" aria-hidden="true">
+            <div className="stack">
+              <div className="panel">
+                <div className="cardWrap">
+                  {cardSrc && (
+                    <>
                       <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-                          `${origin}/testnet/${serial}`
-                        )}`}
-                        alt=""
-                        className="qrImg"
+                        src={cardSrc}
+                        alt={`Check card ${serial}`}
+                        className="cardImg"
                         draggable={false}
                       />
-                    </div>
-                  </>
-                )}
 
-                {cardFailed && (
-                  <div className="imgFail">
-                    <div className="muted">
-                      Check image failed to load. You can open it directly:
-                    </div>
-                    <div className="btnRow">
-                      <a className="pillBtnLink" href={candidates[0]} target="_blank" rel="noreferrer">
-                        Open image
-                      </a>
-                      <a className="pillBtnLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
-                        Open page
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </div>
+                      {/* QR overlay */}
+                      <div className="qrOuter" aria-hidden="true">
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
+                            `${origin}/testnet/${serial}`
+                          )}`}
+                          className="qrImg"
+                          alt=""
+                        />
+                      </div>
+                    </>
+                  )}
 
-              <div className="btnRow">
-                <a className="pillBtnLink" href={cardSrc || candidates[0]} target="_blank" rel="noreferrer">
-                  Open image
-                </a>
-                <a className="pillBtnLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
-                  Open page
-                </a>
+                  {cardFailed && (
+                    <div className="imgFail">
+                      <div className="label">Check image failed to load.</div>
+                      <div className="muted">
+                        You can open it directly:
+                        <div className="btnRow">
+                          <a className="pillBtnLink" href={candidates[0]} target="_blank" rel="noreferrer">
+                            Open image
+                          </a>
+                          <a className="pillBtnLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
+                            Open page
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="btnRow">
+                  <a className="pillBtnLink" href={cardSrc || candidates[0]} target="_blank" rel="noreferrer">
+                    Open image
+                  </a>
+                  <a className="pillBtnLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
+                    Open page
+                  </a>
+                </div>
               </div>
-            </section>
+            </div>
 
             {/* RIGHT: Details + Links */}
-            <section className="stack">
+            <div className="stack">
               <div className="panel">
                 <h2 className="h2">Details</h2>
 
-                <div className="row">
+                <div className="detailGrid">
                   <div className="label">Network</div>
-                  <div>Polygon Amoy (chainId 80002)</div>
-                </div>
+                  <div className="valueRight">Polygon Amoy (chainId 80002)</div>
 
-                <div className="row">
                   <div className="label">Contract</div>
-                  <div className="hashLine" title={record.contract}>
-                    <span className="monoNoWrap">{record.contract}</span>
+                  <div className="valueRight">
+                    <div className="hashLine monoNoWrap">{record.contract}</div>
+                    <div className="btnRow">
+                      <button
+                        className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
+                        onClick={() => copyToClipboard(record.contract, "contract")}
+                        type="button"
+                      >
+                        {copiedKey === "contract" ? "Copied" : "Copy"}
+                      </button>
+                      <a
+                        className="pillBtnLink"
+                        href={polygonscanAddress(record.contract)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in Polygonscan
+                      </a>
+                    </div>
                   </div>
-                  <div className="btnRow">
-                    <button
-                      className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
-                      onClick={() => copyToClipboard(record.contract, "contract")}
-                      type="button"
-                    >
-                      Copy
-                    </button>
-                    <a
-                      className="pillBtnLink"
-                      href={polygonscanAddress(record.contract)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open in Polygonscan
-                    </a>
-                  </div>
-                </div>
 
-                <div className="row">
                   <div className="label">TokenID</div>
-                  <div>{record.tokenId}</div>
+                  <div className="valueRight">{record.tokenId}</div>
+
+                  {/* Post-dated / void details formatting */}
+                  {(claimableAt != null || isVoided) && (
+                    <>
+                      {claimableAt != null && (
+                        <>
+                          <div className="label">Post-dated until</div>
+                          <div className="valueRight">{formatUtc(claimableAt)}</div>
+
+                          <div className="label">Claim countdown</div>
+                          <div className="valueRight">
+                            {claimableAtMs != null ? (
+                              nowMs >= claimableAtMs ? (
+                                "Claimable now"
+                              ) : (
+                                `Claimable in ${countdown}`
+                              )
+                            ) : (
+                              "—"
+                            )}
+                          </div>
+
+                          <div className="label">Status</div>
+                          <div className="valueRight">{claimStatusText || "—"}</div>
+                        </>
+                      )}
+
+                      {claimableAt == null && isVoided && (
+                        <>
+                          <div className="label">Status</div>
+                          <div className="valueRight">{claimStatusText}</div>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
-
-                {/* Post-dated / void details formatting */}
-                {(claimableAt != null || isVoided) && (
-                  <>
-                    <div className="divider" />
-
-                    {claimableAt != null && (
-                      <div className="detailGrid">
-                        <div className="label">Post-dated until</div>
-                        <div className="valueRight">{formatUtc(claimableAt)}</div>
-
-                        <div className="label">Claim countdown</div>
-                        <div className="valueRight">
-                          {claimableAtMs != null ? (
-                            nowMs >= claimableAtMs ? "Claimable now" : `Claimable in ${countdown}`
-                          ) : (
-                            "—"
-                          )}
-                        </div>
-
-                        <div className="label">Status</div>
-                        <div className="valueRight">{claimStatusText || "—"}</div>
-                      </div>
-                    )}
-
-                    {claimableAt == null && isVoided && (
-                      <div className="detailGrid">
-                        <div className="label">Status</div>
-                        <div className="valueRight">{claimStatusText}</div>
-                      </div>
-                    )}
-                  </>
-                )}
               </div>
 
               <div className="panel">
@@ -412,14 +416,14 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                     copiedKey={copiedKey}
                     onCopy={copyToClipboard}
                   />
-                  {/* For post-dated checks, void tx can replace redeem in practice,
-                      but we still show Redeem (if present) and show Void separately if it exists. */}
                   <HashItem
                     label="Redeem"
                     hash={normalizedRedeem}
                     copiedKey={copiedKey}
                     onCopy={copyToClipboard}
                   />
+                  {/* For post-dated checks, void tx can replace redeem in practice,
+                      but we still show Redeem (if present) and show Void separately if it exists. */}
                   {normalizedVoid && (
                     <HashItem
                       label="Void"
@@ -430,17 +434,17 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                   )}
                 </ul>
               </div>
-            </section>
-          </div>
 
-          <div className="footer">
-            <div className="muted">Powered by Checks</div>
-            <div className="muted">Tip: TokenIDs may repeat due to early multi-contract testing.</div>
+              <div className="footer">
+                <div className="muted">Powered by Checks</div>
+                <div className="muted">Tip: TokenIDs may repeat due to early multi-contract testing.</div>
+              </div>
+            </div>
           </div>
         </div>
-      </main>
+      </div>
 
-      <style jsx>{baseStyles}</style>
+      <style jsx global>{baseStyles}</style>
     </>
   );
 }
@@ -457,6 +461,7 @@ function HashItem({
   onCopy: (text: string, key: string) => void;
 }) {
   const key = `tx:${label.toLowerCase()}`;
+  const scanUrl = hash ? polygonscanTx(hash) : null;
 
   return (
     <li className="li">
@@ -464,28 +469,21 @@ function HashItem({
 
       {hash ? (
         <>
-          <a
-            className="hashLink"
-            href={polygonscanTx(hash)}
-            target="_blank"
-            rel="noreferrer"
-            title={hash}
-          >
-            <span className="monoNoWrap">{hash}</span>
+          <a className="hashLink monoNoWrap" href={scanUrl!} target="_blank" rel="noreferrer">
+            {hash}
           </a>
-
           <div className="btnRow">
             <button
               className={`pillBtn ${copiedKey === key ? "copied" : ""}`}
               onClick={() => onCopy(hash, key)}
               type="button"
             >
-              Copy
+              {copiedKey === key ? "Copied" : "Copy"}
             </button>
           </div>
         </>
       ) : (
-        <div className="muted">Not available</div>
+        <div className="hashLine monoNoWrap">Not available</div>
       )}
     </li>
   );
@@ -498,8 +496,7 @@ const baseStyles = `
   }
 
   .page {
-    font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
-      Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
     background: #ffffff;
     color: #0f172a;
   }
@@ -523,7 +520,6 @@ const baseStyles = `
     text-decoration: none;
     font-weight: 700;
   }
-
   .backLink:hover {
     text-decoration: underline;
   }
@@ -661,9 +657,9 @@ const baseStyles = `
   .qrOuter {
     position: absolute;
     right: 30px;
-    top: 112px;
-    width: 112px;
-    height: 112px;
+    top: 108px;
+    width: 104px;
+    height: 104px;
     background: #ffffff;
     border-radius: 10px;
     display: flex;
@@ -673,8 +669,8 @@ const baseStyles = `
   }
 
   .qrImg {
-    width: 90px;
-    height: 90px;
+    width: 86px;
+    height: 86px;
     border-radius: 8px;
     image-rendering: pixelated;
     display: block;
@@ -761,8 +757,7 @@ const baseStyles = `
   }
 
   .monoNoWrap {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-      "Liberation Mono", "Courier New", monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     white-space: nowrap;
     font-size: 13px;
   }
@@ -790,13 +785,13 @@ const baseStyles = `
     }
     .qrOuter {
       right: 18px;
-      top: 102px;
-      width: 110px;
-      height: 110px;
+      top: 98px;
+      width: 102px;
+      height: 102px;
     }
     .qrImg {
-      width: 92px;
-      height: 92px;
+      width: 88px;
+      height: 88px;
     }
   }
 
