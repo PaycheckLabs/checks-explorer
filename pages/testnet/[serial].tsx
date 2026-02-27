@@ -591,20 +591,18 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — locked positioning + scaling for FMV-8427BC-UK45 */
+  /* QR overlay — stable pixel placement (restored) */
   .qrOuter {
     position: absolute;
-
-    /* Tuned to match printed QR area on FMV-8427BC-UK45 */
-    right: calc(2.4% + 2px); /* nudge LEFT by ~2px */
-    top: calc(21% - 6px);    /* nudge UP by ~6px */
-
-    /* ~10% smaller at normal size; scales with card to prevent drift */
-    width: clamp(80px, 13.5%, 125px);
-    height: clamp(80px, 13.5%, 125px);
-
+    right: 18px;  /* +10px (moves overlay left) */
+    top: 129px;   /* tuned */
+    width: 112px;
+    height: 112px;
     background: #ffffff;
-    border-radius: 9px;
+
+    /* slightly sharper than before */
+    border-radius: 10px;
+
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
 
@@ -615,10 +613,12 @@ const baseStyles = `
   }
 
   .qrImg {
-    /* keep QR sharp corners; scale inside the plate */
-    width: 88%;
-    height: 88%;
+    width: 98px;
+    height: 98px;
+
+    /* QR MUST be sharp corners */
     border-radius: 0px;
+
     display: block;
   }
 
@@ -731,16 +731,16 @@ const baseStyles = `
     }
 
     .qrOuter {
-      right: calc(2.4% + 2px);
-      top: calc(21% - 6px);
-      width: clamp(72px, 13.5%, 125px);
-      height: clamp(72px, 13.5%, 125px);
-      border-radius: 9px;
+      right: 16px;
+      top: 121px;
+      width: 108px;
+      height: 108px;
+      border-radius: 10px;
     }
 
     .qrImg {
-      width: 88%;
-      height: 88%;
+      width: 94px;
+      height: 94px;
       border-radius: 0px;
     }
   }
