@@ -75,7 +75,6 @@ function normalizeTxHash(input?: string | null): string | null {
 function formatUtc(tsSeconds: number) {
   try {
     const d = new Date(tsSeconds * 1000);
-    // Ex: 2026-02-21 06:47 UTC
     const yyyy = d.getUTCFullYear();
     const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
     const dd = String(d.getUTCDate()).padStart(2, "0");
@@ -101,12 +100,10 @@ function msToHuman(ms: number) {
 }
 
 function getCardCandidates(serial: string) {
-  // Try the most likely ones in order.
   return [`/checks/testnet/${serial}.png`, `/testnet/${serial}.png`, `/checks/${serial}.png`];
 }
 
 async function pickFirstLoadableImage(candidates: string[]): Promise<string | null> {
-  // Runs client-side only (uses Image)
   for (const src of candidates) {
     const ok = await new Promise<boolean>((resolve) => {
       const img = new Image();
@@ -262,12 +259,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                 <div className="cardWrap">
                   {cardSrc && (
                     <>
-                      <img
-                        src={cardSrc}
-                        alt={`Check card ${serial}`}
-                        className="cardImg"
-                        draggable={false}
-                      />
+                      <img src={cardSrc} alt={`Check card ${serial}`} className="cardImg" draggable={false} />
 
                       {/* QR overlay */}
                       <div className="qrOuter" aria-hidden="true">
@@ -354,7 +346,11 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
                           <div className="label">Claim countdown</div>
                           <div className="valueRight">
-                            {claimableAtMs != null ? (nowMs >= claimableAtMs ? "Claimable now" : `Claimable in ${countdown}`) : "—"}
+                            {claimableAtMs != null
+                              ? nowMs >= claimableAtMs
+                                ? "Claimable now"
+                                : `Claimable in ${countdown}`
+                              : "—"}
                           </div>
 
                           <div className="label">Status</div>
@@ -380,7 +376,9 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                   <HashItem label="Mint" hash={normalizedMint} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   <HashItem label="Transfer" hash={normalizedTransfer} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   <HashItem label="Redeem" hash={normalizedRedeem} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  {normalizedVoid && <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />}
+                  {normalizedVoid && (
+                    <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />
+                  )}
                 </ul>
               </div>
 
@@ -593,17 +591,21 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — move LEFT + DOWN and slightly larger to match original render */
+  /* QR overlay — shift RIGHT + DOWN to match red guide lines, and make QR corners sharp */
   .qrOuter {
     position: absolute;
-    right: 52px; /* was too close to edge (caused clipping) */
-    top: 118px;  /* was too high */
+    right: 8px;   /* move right to align with serial end */
+    top: 140px;   /* move down (was too high) */
     width: 112px;
     height: 112px;
     background: #ffffff;
-    border-radius: 12px;
+
+    /* slightly sharper than before */
+    border-radius: 10px;
+
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+
     display: flex;
     align-items: center;
     justify-content: center;
@@ -613,8 +615,10 @@ const baseStyles = `
   .qrImg {
     width: 98px;
     height: 98px;
-    border-radius: 6px; /* reduce corner clipping of QR modules */
-    image-rendering: pixelated;
+
+    /* QR MUST be sharp corners */
+    border-radius: 0px;
+
     display: block;
   }
 
@@ -727,16 +731,17 @@ const baseStyles = `
     }
 
     .qrOuter {
-      right: 38px;
-      top: 110px;
+      right: 6px;
+      top: 132px;
       width: 108px;
       height: 108px;
+      border-radius: 10px;
     }
 
     .qrImg {
       width: 94px;
       height: 94px;
-      border-radius: 6px;
+      border-radius: 0px;
     }
   }
 
