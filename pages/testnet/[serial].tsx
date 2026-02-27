@@ -591,16 +591,18 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — shift LEFT + UP (no size changes) */
+  /* QR overlay - stable positioning (prevents drift when zooming) */
   .qrOuter {
     position: absolute;
-    right: 18px;  /* +10px (moves overlay left) */
-    top: 129px;   /* -20px (moves overlay up) */
+
+    /* These are percentages so the QR stays anchored to the card at any zoom level */
+    right: 3.5%;  /* locked to card width */
+    top: 45%;     /* locked to card height */
+
     width: 112px;
     height: 112px;
     background: #ffffff;
 
-    /* slightly sharper than before */
     border-radius: 10px;
 
     border: 1px solid rgba(15, 23, 42, 0.06);
@@ -615,10 +617,7 @@ const baseStyles = `
   .qrImg {
     width: 98px;
     height: 98px;
-
-    /* QR MUST be sharp corners */
-    border-radius: 0px;
-
+    border-radius: 0px; /* sharp corners */
     display: block;
   }
 
@@ -731,8 +730,8 @@ const baseStyles = `
     }
 
     .qrOuter {
-      right: 16px;
-      top: 121px;
+      right: 3.5%;
+      top: 45%;
       width: 108px;
       height: 108px;
       border-radius: 10px;
