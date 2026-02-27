@@ -591,11 +591,11 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — shift RIGHT + DOWN to match red guide lines, and make QR corners sharp */
+  /* QR overlay — shift LEFT + UP (no size changes) */
   .qrOuter {
     position: absolute;
-    right: 8px;   /* move right to align with serial end */
-    top: 140px;   /* move down (was too high) */
+    right: 18px;  /* +10px (moves overlay left) */
+    top: 120px;   /* -20px (moves overlay up) */
     width: 112px;
     height: 112px;
     background: #ffffff;
@@ -731,8 +731,8 @@ const baseStyles = `
     }
 
     .qrOuter {
-      right: 6px;
-      top: 132px;
+      right: 16px;
+      top: 112px;
       width: 108px;
       height: 108px;
       border-radius: 10px;
