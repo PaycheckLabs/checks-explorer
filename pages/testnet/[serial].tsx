@@ -591,20 +591,20 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay - stable positioning (prevents drift when zooming) */
+  /* QR overlay — locked positioning + scaling for FMV-8427BC-UK45 */
   .qrOuter {
     position: absolute;
 
-    /* These are percentages so the QR stays anchored to the card at any zoom level */
-    right: 3.5%;  /* locked to card width */
-    top: 45%;     /* locked to card height */
+    /* Tuned to match printed QR area on FMV-8427BC-UK45 */
+    right: calc(2.4% + 2px); /* nudge LEFT by ~2px */
+    top: calc(21% - 6px);    /* nudge UP by ~6px */
 
-    width: 112px;
-    height: 112px;
+    /* ~10% smaller at normal size; scales with card to prevent drift */
+    width: clamp(80px, 13.5%, 125px);
+    height: clamp(80px, 13.5%, 125px);
+
     background: #ffffff;
-
-    border-radius: 10px;
-
+    border-radius: 9px;
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
 
@@ -615,9 +615,10 @@ const baseStyles = `
   }
 
   .qrImg {
-    width: 98px;
-    height: 98px;
-    border-radius: 0px; /* sharp corners */
+    /* keep QR sharp corners; scale inside the plate */
+    width: 88%;
+    height: 88%;
+    border-radius: 0px;
     display: block;
   }
 
@@ -730,16 +731,16 @@ const baseStyles = `
     }
 
     .qrOuter {
-      right: 3.5%;
-      top: 45%;
-      width: 108px;
-      height: 108px;
-      border-radius: 10px;
+      right: calc(2.4% + 2px);
+      top: calc(21% - 6px);
+      width: clamp(72px, 13.5%, 125px);
+      height: clamp(72px, 13.5%, 125px);
+      border-radius: 9px;
     }
 
     .qrImg {
-      width: 94px;
-      height: 94px;
+      width: 88%;
+      height: 88%;
       border-radius: 0px;
     }
   }
