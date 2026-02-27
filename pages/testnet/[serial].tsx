@@ -21,13 +21,13 @@ type SerialRecord = {
 type PageProps = {
   serial: string;
   record: SerialRecord | null;
-  origin: string;
 };
 
 export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => {
   const raw = String(ctx.params?.serial || "");
   const normalized = normalizeSerial(raw);
 
+  // Keep URL normalized (important for consistency)
   if (raw !== normalized) {
     return {
       redirect: { destination: `/testnet/${normalized}`, permanent: false },
@@ -39,424 +39,505 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
   const record =
     (serials as Record<string, SerialRecord | undefined>)[normalized] ?? null;
 
-  const proto =
-    (ctx.req.headers["x-forwarded-proto"] as string) ||
-    (ctx.req.headers["x-forwarded-protocol"] as string) ||
-    "https";
-  const host = ctx.req.headers.host || "explorer.checks.xyz";
-  const origin = `${proto}://${host}`;
-
-  return { props: { serial: normalized, record, origin } };
+  return { props: { serial: normalized, record } };
 };
 
-function polygonscanTx(tx: string) {
+function polyscanTx(tx: string) {
   return `https://amoy.polygonscan.com/tx/${tx}`;
 }
-
-function polygonscanAddr(addr: string) {
+function polyscanAddr(addr: string) {
   return `https://amoy.polygonscan.com/address/${addr}`;
 }
 
+function formatUtcDateTime(epochSec: number) {
+  const d = new Date(epochSec * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mi = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi} UTC`;
+}
+
+function formatTimeUntil(targetSec: number, nowSec: number) {
+  const diff = Math.max(0, targetSec - nowSec);
+  const days = Math.floor(diff / 86400);
+  const hours = Math.floor((diff % 86400) / 3600);
+  const mins = Math.floor((diff % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
 /**
- * Makes tx parsing forgiving:
- * - Accepts raw tx hashes
- * - Accepts URLs that include /tx/0x...
- * - Accepts strings with extra text, as long as they contain a 0x{64} hash
+ * Normalize tx hash so "red links" become valid links whenever possible.
+ * - trims whitespace/newlines
+ * - strips non-hex chars
+ * - ensures 0x prefix
  */
-function normalizeTxHash(input?: string | null): string | null {
-  if (!input) return null;
-  const s = String(input).trim();
-  const m = s.match(/0x[a-fA-F0-9]{64}/);
-  if (!m) return null;
-  return `0x${m[0].slice(2).toLowerCase()}`;
+function normalizeTxHash(input?: string) {
+  const raw = (input ?? "").trim();
+  if (!raw) return "";
+  const hex = raw.replace(/^0x/i, "").replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+  if (hex.length !== 64) return raw.trim(); // keep as-is if not 64 hex chars
+  return `0x${hex}`;
 }
 
-function shortAddr(addr: string) {
-  if (!addr?.startsWith("0x") || addr.length < 10) return addr;
-  return `${addr.slice(0, 4)}…${addr.slice(-5)}`;
+function isTxHash(input?: string) {
+  const v = normalizeTxHash(input);
+  return /^0x[0-9a-f]{64}$/.test(v);
 }
 
-export default function SerialPage({ serial, record, origin }: PageProps) {
+export default function SerialTestnetPage({ serial, record }: PageProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [cardOk, setCardOk] = useState(true);
+  const [nowSec, setNowSec] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!copiedKey) return;
-    const t = setTimeout(() => setCopiedKey(null), 1200);
-    return () => clearTimeout(t);
-  }, [copiedKey]);
+    setCardOk(true);
+  }, [serial]);
 
-  const cardImageUrl = useMemo(
-    () => `${origin}/api/checks/image/${serial}?v=final`,
-    [origin, serial]
-  );
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 15_000);
+    setNowSec(Math.floor(Date.now() / 1000));
+    return () => clearInterval(t);
+  }, []);
 
-  const mintTx = normalizeTxHash(record?.mintTx);
-  const transferTx = normalizeTxHash(record?.transferTx);
-  const redeemTx = normalizeTxHash(record?.redeemTx);
-  const voidTx = normalizeTxHash(record?.voidTx);
+  const imageSrc = useMemo(() => `/api/checks/image/${serial}?v=final`, [serial]);
+  const openImageHref = imageSrc;
+  const openPageHref = `/testnet/${serial}`;
 
-  const status = useMemo(() => {
-    if (!record) return "Unknown";
-    if (voidTx) return "Voided";
-    if (redeemTx) return "Redeemed";
-    return "Active";
-  }, [record, voidTx, redeemTx]);
-
-  const isVoided = status === "Voided";
-
-  function copy(text: string, key: string) {
-    void navigator.clipboard.writeText(text);
-    setCopiedKey(key);
+  async function copyWithFeedback(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((prev) => (prev === key ? null : prev)), 900);
+    } catch {
+      // ignore
+    }
   }
+
+  function labelFor(key: string, fallback: string) {
+    return copiedKey === key ? "Copied" : fallback;
+  }
+
+  const status = record?.voidTx ? "Voided" : record ? "Redeemed" : "Unknown";
+
+  const statusClass =
+    status === "Redeemed" ? "statusOk" : status === "Voided" ? "statusBad" : "statusNeutral";
+
+  // Links should be exactly 3:
+  // - If voided: Mint, Transfer, Void
+  // - Else: Mint, Transfer, Redeem
+  const links = useMemo(() => {
+    if (!record) return [];
+    const mint = normalizeTxHash(record.mintTx);
+    const transfer = normalizeTxHash(record.transferTx);
+    const redeem = normalizeTxHash(record.redeemTx);
+    const voidTx = normalizeTxHash(record.voidTx);
+
+    if (record.voidTx) {
+      return [
+        { key: "mint", label: "Mint", tx: mint },
+        { key: "transfer", label: "Transfer", tx: transfer },
+        { key: "void", label: "Void", tx: voidTx },
+      ];
+    }
+
+    return [
+      { key: "mint", label: "Mint", tx: mint },
+      { key: "transfer", label: "Transfer", tx: transfer },
+      { key: "redeem", label: "Redeem", tx: redeem },
+    ];
+  }, [record]);
 
   return (
     <>
       <Head>
-        <title>{serial} • Checks Explorer</title>
-
-        {/* Kanit font (restore original feel) */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700;800;900&display=swap"
-          rel="stylesheet"
-        />
+        <title>{serial} | Checks Explorer</title>
+        <meta name="robots" content="noindex,nofollow" />
       </Head>
 
-      <div className="page">
-        <div className="wrap">
-          <div className="topbar">
-            <Link href="/" className="backLink">
+      <div className="wrap">
+        <div className="top">
+          <div className="topBar">
+            <Link className="back" href="/">
               ← Checks Explorer
             </Link>
 
             <button
-              className={`copyPageBtn ${
-                copiedKey === "page" ? "copied" : ""
-              }`}
-              onClick={() => copy(`${origin}/testnet/${serial}`, "page")}
+              className="pillBtn"
+              onClick={() => copyWithFeedback("page", typeof window !== "undefined" ? window.location.href : openPageHref)}
+              type="button"
             >
-              Copy page link
+              {labelFor("page", "Copy page link")}
             </button>
           </div>
 
-          <h1 className="h1">{serial}</h1>
+          <div className="serial">{serial}</div>
 
-          <div className="badges">
-            <span className="pill">Testnet</span>
-            <span className="dot">•</span>
-            <span className="pill">Polygon Amoy (80002)</span>
-            <span className={`statusPill ${isVoided ? "statusRed" : "statusGreen"}`}>
-              Status&nbsp;&nbsp;<strong>{status}</strong>
+          <div className="subRow">
+            <span className="pill">
+              <span className="pillStrong">Testnet</span>
+              <span className="pillDot">•</span>
+              <span>Polygon Amoy (80002)</span>
+            </span>
+
+            <span className={`pill ${statusClass}`}>
+              <span className="pillStrong">Status</span>
+              <span>{status}</span>
             </span>
           </div>
+        </div>
 
-          <div className="grid">
-            <div>
-              <div className="cardLabelRow">
-                <span className="labelSm">Check card {serial}</span>
-              </div>
+        <div className="grid">
+          <div className="left">
+            <div className="cardArea">
+              {cardOk ? (
+                <img
+                  className="cardImg"
+                  src={imageSrc}
+                  alt={`Check card ${serial}`}
+                  onError={() => setCardOk(false)}
+                />
+              ) : (
+                <div className="cardFallback">
+                  <div className="mutedSmall">
+                    Check image failed to load. You can open it directly:
+                  </div>
+                  <div className="fallbackRow">
+                    <a className="monoLink" href={openImageHref} target="_blank" rel="noreferrer">
+                      Open image
+                    </a>
+                    <span className="dot">•</span>
+                    <a className="monoLink" href={openPageHref} target="_blank" rel="noreferrer">
+                      Open page
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
 
-              <div className="cardWrap">
-                {/* Use img for now, keeps foundation intact */}
-                {/* If the API returns 500, this will not render the image */}
-                <img className="cardImg" src={cardImageUrl} alt={`Check card ${serial}`} />
-              </div>
-
-              <div className="btnRow">
-                <a className="openLink" href={cardImageUrl} target="_blank" rel="noreferrer">
+            {cardOk ? (
+              <div className="belowLinks">
+                <a className="monoLink" href={openImageHref} target="_blank" rel="noreferrer">
                   Open image
                 </a>
                 <span className="dot">•</span>
-                <a className="openLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
+                <a className="monoLink" href={openPageHref} target="_blank" rel="noreferrer">
                   Open page
                 </a>
               </div>
+            ) : null}
+          </div>
 
-              <div className="tip">
-                Tip: This is an early explorer view. Full experience coming soon.
+          <div className="right">
+            {!record ? (
+              <div className="panel">
+                <h2 className="h2">Details</h2>
+                <div className="mutedSmall">No record found for this serial.</div>
               </div>
-            </div>
+            ) : (
+              <div className="panel">
+                <h2 className="h2">Details</h2>
 
-            <div>
-              <h2 className="h2">Details</h2>
+                <div className="row">
+                  <div className="label">Network</div>
+                  <div>Polygon Amoy (chainId {record.chainId})</div>
+                </div>
 
-              <div className="row">
-                <div className="label">Network</div>
-                <div>Polygon Amoy (chainId 80002)</div>
-              </div>
+                <div className="row rowContract">
+                  <div className="label">Contract</div>
+                  <div>
+                    <div className="mono">{record.contract}</div>
 
-              <div className="row">
-                <div className="label">Contract</div>
-                <div className="inline">
-                  <span className="mono">{record?.contract || "Unknown"}</span>
-                  {record?.contract ? (
-                    <>
+                    <div className="btnRow">
                       <button
-                        className={`copyBtn ${
-                          copiedKey === "contract" ? "copied" : ""
-                        }`}
-                        onClick={() => copy(record.contract, "contract")}
+                        className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
+                        onClick={() => copyWithFeedback("contract", record.contract)}
+                        type="button"
+                        title="Copy contract address"
                       >
-                        Copy
+                        {labelFor("contract", "Copy")}
                       </button>
+
                       <a
-                        className="openBtn"
-                        href={polygonscanAddr(record.contract)}
+                        className="pillBtn pillLink"
+                        href={polyscanAddr(record.contract)}
                         target="_blank"
                         rel="noreferrer"
+                        title="Open contract in Polygonscan"
                       >
                         Open in Polygonscan
                       </a>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="row">
-                <div className="label">TokenID</div>
-                <div>{record?.tokenId ?? "Unknown"}</div>
-              </div>
-
-              {isVoided && record?.claimableAt ? (
-                <div className="row">
-                  <div className="label">Post-dated until</div>
-                  <div>
-                    {new Date(record.claimableAt * 1000).toISOString().replace("T", " ").slice(0, 16)}{" "}
-                    UTC
+                    </div>
                   </div>
                 </div>
-              ) : null}
 
-              <div className="divider" />
+                <div className="row">
+                  <div className="label">TokenID</div>
+                  <div className="mono">{record.tokenId}</div>
+                </div>
 
-              <h2 className="h2">Links</h2>
+                {record.claimableAt ? (
+                  <div className="row">
+                    <div className="label">Post-dated until</div>
+                    <div>
+                      <div className="mono">{formatUtcDateTime(record.claimableAt)}</div>
+                      {nowSec ? (
+                        <div className="mutedSmall" suppressHydrationWarning>
+                          Claimable in {formatTimeUntil(record.claimableAt, nowSec)}
+                        </div>
+                      ) : null}
+                      {record.voidTx ? (
+                        <div className="mutedSmall">This check was voided before it became claimable.</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
-              <ul className="ul">
-                <li className="li">
-                  <div className="label">Mint</div>
-                  <TxRow
-                    tx={mintTx}
-                    copiedKey={copiedKey}
-                    copy={copy}
-                    k="mint"
-                  />
-                </li>
+                <div className="divider" />
 
-                <li className="li">
-                  <div className="label">Transfer</div>
-                  {/* If missing, show Not available (no red “broken” hash) */}
-                  <TxRow
-                    tx={transferTx}
-                    copiedKey={copiedKey}
-                    copy={copy}
-                    k="transfer"
-                    emptyText="Not available"
-                  />
-                </li>
+                <h2 className="h2">Links</h2>
 
-                <li className="li">
-                  <div className="label">{isVoided ? "Void" : "Redeem"}</div>
-                  <TxRow
-                    tx={isVoided ? voidTx : redeemTx}
-                    copiedKey={copiedKey}
-                    copy={copy}
-                    k={isVoided ? "void" : "redeem"}
-                    emptyText="Not available"
-                  />
-                </li>
-              </ul>
-            </div>
+                <ul className="ul">
+                  {links.map((l) => {
+                    const tx = l.tx;
+                    const ok = isTxHash(tx);
+
+                    return (
+                      <li className="li" key={l.key}>
+                        <div className="label">{l.label}</div>
+
+                        {tx ? (
+                          <div className="inline">
+                            {ok ? (
+                              <a className="monoLink" href={polyscanTx(normalizeTxHash(tx))} target="_blank" rel="noreferrer">
+                                {normalizeTxHash(tx)}
+                              </a>
+                            ) : (
+                              <span className="mono invalid" title="Invalid tx hash">
+                                {tx}
+                              </span>
+                            )}
+
+                            <button
+                              className={`pillBtn ${copiedKey === l.key ? "copied" : ""}`}
+                              onClick={() => copyWithFeedback(l.key, tx)}
+                              type="button"
+                            >
+                              {labelFor(l.key, "Copy")}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="mutedSmall">Not available</div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </div>
+        </div>
 
-          <div className="footer">
-            <span className="muted">Powered by Checks</span>
-            <span className="muted">
-              Tip: TokenIDs may repeat due to early multi-contract testing.
-            </span>
-          </div>
+        <div className="footer">
+          <div>Powered by Checks</div>
+          <div className="mutedSmall">Tip: TokenIDs may repeat due to early multi-contract testing.</div>
         </div>
       </div>
 
       <style jsx>{`
-        .page {
-          min-height: 100vh;
-          background: #ffffff;
-          color: #0f172a;
-          font-family: "Kanit", system-ui, -apple-system, Segoe UI, Roboto,
-            Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        }
-
         .wrap {
-          max-width: 1040px;
-          margin: 0 auto;
-          padding: 34px 22px 48px;
+          max-width: 1120px;
+          margin: 48px auto;
+          padding: 0 18px;
+          color: #111827;
         }
 
-        .topbar {
+        .top {
+          margin-bottom: 28px;
+        }
+
+        .topBar {
           display: flex;
-          align-items: center;
           justify-content: space-between;
-          gap: 18px;
-          margin-bottom: 18px;
+          gap: 12px;
+          align-items: center;
+          flex-wrap: wrap;
         }
 
-        .backLink {
+        .back {
           color: #4f46e5;
           text-decoration: none;
-          font-weight: 800;
+          font-weight: 700;
         }
 
-        .backLink:hover {
-          text-decoration: underline;
+        .serial {
+          font-size: 44px;
+          line-height: 1.08;
+          margin: 14px 0 12px;
+          font-weight: 700;
+          letter-spacing: -0.4px;
         }
 
-        .copyPageBtn {
-          appearance: none;
-          -webkit-appearance: none;
-          border: 1px solid #e5e7eb;
-          background: #ffffff;
-          color: #0f172a;
-          border-radius: 999px;
-          padding: 8px 14px;
-          font-size: 13px;
-          font-weight: 900;
-          cursor: pointer;
-          line-height: 1;
-        }
-
-        .copyPageBtn:hover {
-          background: #f8fafc;
-        }
-
-        .h1 {
-          font-size: 54px;
-          line-height: 1.02;
-          margin: 0 0 14px 0;
-          font-weight: 900;
-          letter-spacing: -0.02em;
-        }
-
-        .badges {
+        .subRow {
           display: flex;
           gap: 10px;
           align-items: center;
           flex-wrap: wrap;
-          margin-bottom: 22px;
+          margin-bottom: 6px;
         }
 
         .pill {
+          display: inline-flex;
+          gap: 10px;
+          align-items: center;
+          padding: 8px 12px;
           border: 1px solid #e5e7eb;
+          border-radius: 999px;
+          font-size: 14px;
           background: #ffffff;
-          border-radius: 999px;
-          padding: 7px 12px;
-          font-size: 13px;
-          font-weight: 800;
         }
 
-        .statusPill {
-          border-radius: 999px;
-          padding: 7px 12px;
-          font-size: 13px;
-          font-weight: 800;
-          border: 1px solid transparent;
+        .pillStrong {
+          font-weight: 700;
         }
 
-        .statusGreen {
-          background: rgba(34, 197, 94, 0.15);
-          border-color: rgba(34, 197, 94, 0.35);
+        .pillDot {
+          color: #64748b;
         }
 
-        .statusRed {
-          background: rgba(239, 68, 68, 0.12);
-          border-color: rgba(239, 68, 68, 0.35);
+        .statusOk {
+          background: #dcfce7;
+          border-color: #86efac;
+        }
+
+        .statusBad {
+          background: #fee2e2;
+          border-color: #fca5a5;
+        }
+
+        .statusNeutral {
+          background: #f1f5f9;
+          border-color: #e2e8f0;
         }
 
         .grid {
           display: grid;
-          grid-template-columns: 1.2fr 0.8fr;
-          gap: 34px;
+          grid-template-columns: 1.1fr 0.9fr;
+          gap: 22px;
           align-items: start;
         }
 
-        .cardLabelRow {
-          margin-bottom: 10px;
+        @media (max-width: 900px) {
+          .grid {
+            grid-template-columns: 1fr;
+          }
+          .serial {
+            font-size: 42px;
+          }
         }
 
-        .labelSm {
-          color: #64748b;
-          font-weight: 900;
-          font-size: 14px;
-        }
-
-        .cardWrap {
-          border-radius: 16px;
-          overflow: hidden;
-          border: 1px solid #e5e7eb;
-          background: #f8fafc;
+        .cardArea {
+          width: 100%;
         }
 
         .cardImg {
           width: 100%;
+          max-width: 540px;
           height: auto;
           display: block;
+          border-radius: 12px;
         }
 
-        .btnRow {
+        .cardFallback {
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          border-radius: 12px;
+          padding: 14px;
+          max-width: 540px;
+        }
+
+        .belowLinks {
           margin-top: 10px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .fallbackRow {
+          margin-top: 6px;
           display: flex;
           gap: 10px;
           align-items: center;
           flex-wrap: wrap;
         }
 
-        .openLink {
-          color: #4f46e5;
-          text-decoration: underline;
-          font-weight: 800;
-          font-size: 14px;
+        .dot {
+          color: #64748b;
         }
 
-        .dot {
-          color: #94a3b8;
+        .panel {
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          border-radius: 16px;
+          padding: 16px 16px 14px;
         }
 
         .h2 {
           font-size: 28px;
-          margin: 0 0 14px 0;
-          font-weight: 900;
+          margin: 0 0 12px;
+          font-weight: 800;
         }
 
         .row {
-          margin-bottom: 14px;
+          display: grid;
+          grid-template-columns: 120px 1fr;
+          gap: 14px;
+          padding: 10px 0;
+        }
+
+        @media (max-width: 520px) {
+          .row {
+            grid-template-columns: 1fr;
+            gap: 6px;
+          }
         }
 
         .label {
           color: #64748b;
-          font-weight: 900;
-          margin-bottom: 6px;
-          font-size: 14px;
+          font-weight: 700;
+          font-size: 13px;
+          text-transform: none;
+        }
+
+        .mono {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+            "Courier New", monospace;
+          font-size: 13px;
+          word-break: break-all;
         }
 
         .divider {
-          margin: 18px 0 18px;
           height: 1px;
           background: #e5e7eb;
+          margin: 14px 0;
         }
 
         .ul {
-          margin: 0;
-          padding-left: 0;
           list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
+          padding: 0;
+          margin: 0;
         }
 
         .li {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
+          padding: 12px 0;
+          border-top: 1px solid #f1f5f9;
+        }
+
+        .li:first-child {
+          border-top: 0;
         }
 
         .inline {
@@ -466,129 +547,73 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
           flex-wrap: wrap;
         }
 
-        .openBtn {
-          border: 1px solid rgba(79, 70, 229, 0.25);
-          background: rgba(79, 70, 229, 0.07);
+        .monoLink {
           color: #4f46e5;
-          border-radius: 999px;
-          padding: 8px 12px;
-          font-size: 12px;
-          font-weight: 900;
-          text-decoration: none;
-          line-height: 1;
+          text-decoration: underline;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+            "Courier New", monospace;
+          font-size: 13px;
+          word-break: break-all;
         }
 
-        .openBtn:hover {
-          background: rgba(79, 70, 229, 0.1);
+        .invalid {
+          color: #dc2626;
         }
 
-        .copyBtn {
+        .mutedSmall {
+          color: #64748b;
+          font-size: 13px;
+        }
+
+        .btnRow {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+          margin-top: 8px;
+        }
+
+        .pillBtn {
           appearance: none;
-          -webkit-appearance: none;
           border: 1px solid #e5e7eb;
           background: #ffffff;
-          color: #111827;
           border-radius: 999px;
           padding: 8px 12px;
-          font-size: 12px;
-          font-weight: 900;
+          font-weight: 700;
+          font-size: 14px;
           cursor: pointer;
-          font-family: inherit;
+          color: #111827;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           line-height: 1;
         }
 
-        .copyBtn:hover {
-          background: #f8fafc;
+        .pillBtn:hover {
+          border-color: #cbd5e1;
+        }
+
+        .pillLink {
+          color: #4f46e5;
         }
 
         .copied {
-          border-color: rgba(34, 197, 94, 0.55) !important;
-          background: rgba(34, 197, 94, 0.12) !important;
-        }
-
-        .tip {
-          margin-top: 18px;
-          font-size: 14px;
-          color: #64748b;
-          text-align: left;
+          background: #ecfeff;
+          border-color: #67e8f9;
         }
 
         .footer {
-          margin-top: 34px;
+          margin-top: 26px;
           padding-top: 18px;
           border-top: 1px solid #e5e7eb;
           display: flex;
           justify-content: space-between;
-          gap: 18px;
+          gap: 12px;
           flex-wrap: wrap;
-        }
-
-        .muted {
-          color: #64748b;
-          font-weight: 600;
-        }
-
-        .monoLink {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-            "Liberation Mono", "Courier New", monospace;
-          word-break: break-all;
-        }
-
-        @media (max-width: 1040px) {
-          .grid {
-            grid-template-columns: 1fr;
-            gap: 26px;
-          }
-
-          .h1 {
-            font-size: 44px;
-          }
+          font-weight: 400;
         }
       `}</style>
     </>
-  );
-}
-
-function TxRow({
-  tx,
-  copiedKey,
-  copy,
-  k,
-  emptyText = "Not available",
-}: {
-  tx: string | null;
-  copiedKey: string | null;
-  copy: (text: string, key: string) => void;
-  k: string;
-  emptyText?: string;
-}) {
-  if (!tx) {
-    return <div style={{ color: "#64748b", fontWeight: 700 }}>{emptyText}</div>;
-  }
-
-  return (
-    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-      <a
-        className="monoLink"
-        href={polygonscanTx(tx)}
-        target="_blank"
-        rel="noreferrer"
-        style={{
-          color: "#4f46e5",
-          textDecoration: "underline",
-          fontWeight: 800,
-        }}
-      >
-        {tx}
-      </a>
-
-      <button
-        className={`copyBtn ${copiedKey === k ? "copied" : ""}`}
-        onClick={() => copy(tx, k)}
-        style={{ marginLeft: 0 }}
-      >
-        Copy
-      </button>
-    </div>
   );
 }
