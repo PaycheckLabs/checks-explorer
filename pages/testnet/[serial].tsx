@@ -52,9 +52,16 @@ function polyscanTx(tx: string) {
 function polyscanAddr(addr: string) {
   return `https://amoy.polygonscan.com/address/${addr}`;
 }
-function isTxHash(tx?: string) {
-  return !!tx && /^0x[a-fA-F0-9]{64}$/.test(tx);
+
+function normalizeTx(tx?: string) {
+  return (tx ?? "").trim();
 }
+
+function isTxHash(tx?: string) {
+  const t = normalizeTx(tx);
+  return !!t && /^0x[a-fA-F0-9]{64}$/.test(t);
+}
+
 function getStatus(r: SerialRecord) {
   if (r.voidTx) return { label: "Voided", tone: "bad" as const };
   if (r.redeemTx) return { label: "Redeemed", tone: "good" as const };
@@ -87,10 +94,14 @@ function formatTimeUntil(targetUnixSec: number, nowUnixSec: number) {
 
 async function safeCopy(text: string): Promise<boolean> {
   if (!text) return false;
+
   try {
     await navigator.clipboard.writeText(text);
     return true;
-  } catch {}
+  } catch {
+    // fall through
+  }
+
   try {
     const el = document.createElement("textarea");
     el.value = text;
@@ -109,45 +120,17 @@ async function safeCopy(text: string): Promise<boolean> {
 }
 
 export default function TestnetSerialPage({ serial, record, origin }: PageProps) {
-  const ASSET_VERSION = "final";
+  const IMAGE_VERSION = "final";
 
-  const bakedCardPath = `/checks/testnet/${encodeURIComponent(
-    serial
-  )}.png?v=${ASSET_VERSION}`;
-
+  const imagePath = `/api/checks/image/${encodeURIComponent(serial)}?v=${IMAGE_VERSION}`;
   const pageUrl = `${origin}/testnet/${encodeURIComponent(serial)}`;
-  const ogImageUrl = `${origin}${bakedCardPath}`;
+  const ogImageUrl = `${origin}${imagePath}`;
 
   const title = `Checks Explorer Testnet • ${serial}`;
   const description =
-    "Payment Checks v1 testnet serial page with proof links and baked check card image.";
+    "Payment Checks v1 testnet serial page with on-chain proof links and check card image.";
 
   const status = record ? getStatus(record) : null;
-
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const mod: any = await import("qrcode-generator-es6");
-        const QR: any = mod?.default ?? mod;
-        const qr = new QR(0, "M");
-        qr.addData(pageUrl);
-        qr.make();
-        const svg = qr.createSvgTag({ cellSize: 6, margin: 0 });
-        const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-        if (!cancelled) setQrDataUrl(dataUrl);
-      } catch {
-        if (!cancelled) setQrDataUrl(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pageUrl]);
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -163,6 +146,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
   async function copyWithFeedback(key: string, value: string) {
     const ok = await safeCopy(value);
     if (!ok) return;
+
     setCopiedKey(key);
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
@@ -215,7 +199,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
             </div>
 
             {status ? (
-              <div className={`status ${status.tone}`}>
+              <div className={`status ${status.tone}`} title="Status derived from proof links">
                 <span className="statusLabel">Status</span>
                 <span className="statusValue">{status.label}</span>
               </div>
@@ -225,23 +209,15 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
         <div className="grid">
           <div className="left">
-            <div className="cardWrap">
-              <img className="card" src={bakedCardPath} alt={`Check card ${serial}`} />
-
-              {qrDataUrl ? (
-                <div className="qrWrap" aria-label="QR code">
-                  <div className="qrPlate">
-                    <img className="qrImg" src={qrDataUrl} alt="QR code" />
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <img className="card" src={imagePath} alt={`Check card ${serial}`} />
 
             <div className="links">
-              <a href={bakedCardPath} target="_blank" rel="noreferrer">
+              <a href={imagePath} target="_blank" rel="noreferrer">
                 Open image
               </a>
+
               <span className="dot">·</span>
+
               <a href={pageUrl} target="_blank" rel="noreferrer">
                 Open page
               </a>
@@ -273,6 +249,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       className={`copyBtn ${copiedKey === "contract" ? "copied" : ""}`}
                       onClick={() => copyWithFeedback("contract", record.contract)}
                       type="button"
+                      title="Copy contract address"
                     >
                       {labelFor("contract", "Copy")}
                     </button>
@@ -282,6 +259,7 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                       href={polyscanAddr(record.contract)}
                       target="_blank"
                       rel="noreferrer"
+                      title="Open contract in Polygonscan"
                     >
                       Open in Polygonscan
                     </a>
@@ -298,14 +276,12 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
                     <div className="label">Post-dated until</div>
                     <div>
                       <div className="mono">{formatUtcDateTime(record.claimableAt)}</div>
-
-                      {nowSec && record.claimableAt > nowSec ? (
+                      {nowSec ? (
                         <div className="mutedSmall" suppressHydrationWarning>
                           Claimable in {formatTimeUntil(record.claimableAt, nowSec)}
                         </div>
                       ) : null}
-
-                      {record.voidTx && nowSec && record.claimableAt > nowSec ? (
+                      {record.voidTx ? (
                         <div className="mutedSmall">
                           This check was voided before it became claimable.
                         </div>
@@ -316,130 +292,53 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
 
                 <div className="divider" />
 
-                <h2 className="h2">Proof links</h2>
+                <h2 className="h2">Links</h2>
 
                 <ul className="ul">
-                  {record.mintTx ? (
-                    <li className="li">
-                      <div className="label">Mint</div>
-                      <div className="inline">
-                        {isTxHash(record.mintTx) ? (
-                          <a
-                            className="monoLink"
-                            href={polyscanTx(record.mintTx)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {record.mintTx}
-                          </a>
-                        ) : (
-                          <span className="mono invalid" title="Invalid tx hash">
-                            {record.mintTx}
-                          </span>
-                        )}
+                  {(
+                    [
+                      { key: "mint", label: "Mint", tx: record.mintTx },
+                      { key: "transfer", label: "Transfer", tx: record.transferTx },
+                      !!record.voidTx
+                        ? { key: "void", label: "Void", tx: record.voidTx }
+                        : { key: "redeem", label: "Redeem", tx: record.redeemTx },
+                    ] as Array<{ key: string; label: string; tx?: string }>
+                  ).map((item) => {
+                    const tx = normalizeTx(item.tx);
+                    const hasTx = !!tx;
+                    const valid = isTxHash(tx);
 
-                        <button
-                          className={`copyBtn ${copiedKey === "mint" ? "copied" : ""}`}
-                          onClick={() => copyWithFeedback("mint", record.mintTx || "")}
-                          type="button"
-                        >
-                          {labelFor("mint", "Copy")}
-                        </button>
-                      </div>
-                    </li>
-                  ) : null}
+                    return (
+                      <li key={item.key} className="li">
+                        <div className="label">{item.label}</div>
+                        <div className="inline">
+                          {hasTx ? (
+                            valid ? (
+                              <a className="monoLink" href={polyscanTx(tx)} target="_blank" rel="noreferrer">
+                                {tx}
+                              </a>
+                            ) : (
+                              <span className="mono invalid" title="Invalid tx hash">
+                                {tx}
+                              </span>
+                            )
+                          ) : (
+                            <span className="mutedSmall">Not available</span>
+                          )}
 
-                  {record.transferTx ? (
-                    <li className="li">
-                      <div className="label">Transfer</div>
-                      <div className="inline">
-                        {isTxHash(record.transferTx) ? (
-                          <a
-                            className="monoLink"
-                            href={polyscanTx(record.transferTx)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {record.transferTx}
-                          </a>
-                        ) : (
-                          <span className="mono invalid" title="Invalid tx hash">
-                            {record.transferTx}
-                          </span>
-                        )}
-
-                        <button
-                          className={`copyBtn ${copiedKey === "transfer" ? "copied" : ""}`}
-                          onClick={() =>
-                            copyWithFeedback("transfer", record.transferTx || "")
-                          }
-                          type="button"
-                        >
-                          {labelFor("transfer", "Copy")}
-                        </button>
-                      </div>
-                    </li>
-                  ) : null}
-
-                  {record.redeemTx ? (
-                    <li className="li">
-                      <div className="label">Redeem</div>
-                      <div className="inline">
-                        {isTxHash(record.redeemTx) ? (
-                          <a
-                            className="monoLink"
-                            href={polyscanTx(record.redeemTx)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {record.redeemTx}
-                          </a>
-                        ) : (
-                          <span className="mono invalid" title="Invalid tx hash">
-                            {record.redeemTx}
-                          </span>
-                        )}
-
-                        <button
-                          className={`copyBtn ${copiedKey === "redeem" ? "copied" : ""}`}
-                          onClick={() => copyWithFeedback("redeem", record.redeemTx || "")}
-                          type="button"
-                        >
-                          {labelFor("redeem", "Copy")}
-                        </button>
-                      </div>
-                    </li>
-                  ) : null}
-
-                  {record.voidTx ? (
-                    <li className="li">
-                      <div className="label">Void</div>
-                      <div className="inline">
-                        {isTxHash(record.voidTx) ? (
-                          <a
-                            className="monoLink"
-                            href={polyscanTx(record.voidTx)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {record.voidTx}
-                          </a>
-                        ) : (
-                          <span className="mono invalid" title="Invalid tx hash">
-                            {record.voidTx}
-                          </span>
-                        )}
-
-                        <button
-                          className={`copyBtn ${copiedKey === "void" ? "copied" : ""}`}
-                          onClick={() => copyWithFeedback("void", record.voidTx || "")}
-                          type="button"
-                        >
-                          {labelFor("void", "Copy")}
-                        </button>
-                      </div>
-                    </li>
-                  ) : null}
+                          {hasTx ? (
+                            <button
+                              className={`copyBtn ${copiedKey === item.key ? "copied" : ""}`}
+                              onClick={() => copyWithFeedback(item.key, tx)}
+                              type="button"
+                            >
+                              {labelFor(item.key, "Copy")}
+                            </button>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               </>
             )}
@@ -555,44 +454,10 @@ export default function TestnetSerialPage({ serial, record, origin }: PageProps)
           align-items: start;
         }
 
-        .cardWrap {
-          position: relative;
-          width: 100%;
-        }
-
         .card {
           width: 100%;
-          border-radius: 4px;
+          border-radius: 16px;
           box-shadow: 0 12px 34px rgba(0, 0, 0, 0.08);
-          display: block;
-        }
-
-        /* Mobile-safe square wrapper for QR (no aspect-ratio bugs) */
-        .qrWrap {
-          position: absolute;
-          left: 72.9167%;
-          top: 45%;
-          width: 23.3333%;
-        }
-
-        .qrWrap::before {
-          content: "";
-          display: block;
-          padding-top: 100%;
-        }
-
-        .qrPlate {
-          position: absolute;
-          inset: 0;
-          background: #ffffff;
-          padding: clamp(6px, 0.8vw, 10px);
-          box-sizing: border-box;
-          border-radius: 12px;
-        }
-
-        .qrImg {
-          width: 100%;
-          height: 100%;
           display: block;
         }
 
