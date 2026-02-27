@@ -108,11 +108,7 @@ function msToHuman(ms: number) {
 function getCardCandidates(serial: string) {
   // We don’t know the exact public path in your deploy right now,
   // so try the most likely ones in order.
-  return [
-    `/checks/testnet/${serial}.png`,
-    `/testnet/${serial}.png`,
-    `/checks/${serial}.png`,
-  ];
+  return [`/checks/testnet/${serial}.png`, `/testnet/${serial}.png`, `/checks/${serial}.png`];
 }
 
 async function pickFirstLoadableImage(candidates: string[]): Promise<string | null> {
@@ -174,8 +170,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
   const claimableAt = record?.claimableAt ?? null;
   const claimableAtMs = claimableAt ? claimableAt * 1000 : null;
-  const countdown =
-    claimableAtMs != null ? msToHuman(claimableAtMs - nowMs) : null;
+  const countdown = claimableAtMs != null ? msToHuman(claimableAtMs - nowMs) : null;
 
   const claimStatusText = useMemo(() => {
     if (!record) return null;
@@ -187,9 +182,9 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
     return `Claimable in ${countdown}`;
   }, [record, isVoided, claimableAtMs, nowMs, countdown]);
 
-  async function copyToClipboard(text: string, key: string) {
+  async function copyToClipboard(textToCopy: string, key: string) {
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(textToCopy);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200);
     } catch {
@@ -263,11 +258,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
             <span className="chip">Polygon Amoy (80002)</span>
             <span className="chipStatus">
               <span className="chipLabel">Status</span>
-              <span
-                className={`chipValue ${
-                  isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""
-                }`}
-              >
+              <span className={`chipValue ${isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""}`}>
                 {isVoided ? "Voided" : isRedeemed ? "Redeemed" : "Active"}
               </span>
             </span>
@@ -404,33 +395,18 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                 <h2 className="h2">Links</h2>
 
                 <ul className="ul">
-                  <HashItem
-                    label="Mint"
-                    hash={normalizedMint}
-                    copiedKey={copiedKey}
-                    onCopy={copyToClipboard}
-                  />
+                  <HashItem label="Mint" hash={normalizedMint} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   <HashItem
                     label="Transfer"
                     hash={normalizedTransfer}
                     copiedKey={copiedKey}
                     onCopy={copyToClipboard}
                   />
-                  <HashItem
-                    label="Redeem"
-                    hash={normalizedRedeem}
-                    copiedKey={copiedKey}
-                    onCopy={copyToClipboard}
-                  />
+                  <HashItem label="Redeem" hash={normalizedRedeem} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   {/* For post-dated checks, void tx can replace redeem in practice,
                       but we still show Redeem (if present) and show Void separately if it exists. */}
                   {normalizedVoid && (
-                    <HashItem
-                      label="Void"
-                      hash={normalizedVoid}
-                      copiedKey={copiedKey}
-                      onCopy={copyToClipboard}
-                    />
+                    <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   )}
                 </ul>
               </div>
@@ -458,7 +434,7 @@ function HashItem({
   label: string;
   hash: string | null;
   copiedKey: string | null;
-  onCopy: (text: string, key: string) => void;
+  onCopy: (textToCopy: string, key: string) => void;
 }) {
   const key = `tx:${label.toLowerCase()}`;
   const scanUrl = hash ? polygonscanTx(hash) : null;
@@ -496,7 +472,8 @@ const baseStyles = `
   }
 
   .page {
-    font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+      "Apple Color Emoji", "Segoe UI Emoji";
     background: #ffffff;
     color: #0f172a;
   }
@@ -653,25 +630,26 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay positioning tuned for your card format */
+  /* QR overlay — restore proportions to match prior “good” render */
   .qrOuter {
     position: absolute;
     right: 30px;
-    top: 108px;
+    top: 104px;
     width: 104px;
     height: 104px;
     background: #ffffff;
-    border-radius: 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.10);
   }
 
   .qrImg {
-    width: 86px;
-    height: 86px;
-    border-radius: 8px;
+    width: 92px;
+    height: 92px;
+    border-radius: 10px;
     image-rendering: pixelated;
     display: block;
   }
@@ -757,7 +735,8 @@ const baseStyles = `
   }
 
   .monoNoWrap {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+      monospace;
     white-space: nowrap;
     font-size: 13px;
   }
@@ -785,9 +764,9 @@ const baseStyles = `
     }
     .qrOuter {
       right: 18px;
-      top: 98px;
-      width: 102px;
-      height: 102px;
+      top: 94px;
+      width: 100px;
+      height: 100px;
     }
     .qrImg {
       width: 88px;
