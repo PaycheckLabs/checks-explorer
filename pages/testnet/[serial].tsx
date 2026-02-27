@@ -596,8 +596,8 @@ const baseStyles = `
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
     top: 129px;   /* tuned */
-    width: 112px;
-    height: 112px;
+    width: 108px;
+    height: 108px;
     background: #ffffff;
 
     /* slightly sharper than before */
@@ -613,8 +613,8 @@ const baseStyles = `
   }
 
   .qrImg {
-    width: 98px;
-    height: 98px;
+    width: 94px;
+    height: 94px;
 
     /* QR MUST be sharp corners */
     border-radius: 0px;
@@ -733,14 +733,14 @@ const baseStyles = `
     .qrOuter {
       right: 16px;
       top: 121px;
-      width: 108px;
-      height: 108px;
+      width: 104px;
+      height: 104px;
       border-radius: 10px;
     }
 
     .qrImg {
-      width: 94px;
-      height: 94px;
+      width: 90px;
+      height: 90px;
       border-radius: 0px;
     }
   }
