@@ -591,17 +591,17 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — stable pixel placement (restored) */
+  /* QR overlay — shift LEFT + UP (no size changes) */
   .qrOuter {
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
-    top: 131px;   /* tuned */
-    width: 107px;
-    height: 107px;
+    top: 129px;   /* -20px (moves overlay up) */
+    width: 108px;
+    height: 108px;
     background: #ffffff;
 
     /* slightly sharper than before */
-    border-radius: 8px;
+    border-radius: 10px;
 
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
@@ -732,10 +732,10 @@ const baseStyles = `
 
     .qrOuter {
       right: 16px;
-      top: 123px;
-      width: 103px;
-      height: 103px;
-      border-radius: 8px;
+      top: 121px;
+      width: 104px;
+      height: 104px;
+      border-radius: 10px;
     }
 
     .qrImg {
