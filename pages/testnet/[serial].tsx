@@ -339,6 +339,11 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                   <div className="label">TokenID</div>
                   <div className="valueRight">{record.tokenId}</div>
 
+                  <div className="label">Memo</div>
+                  <div className="valueRight">
+                    <div className="memoText">{record.memo || "—"}</div>
+                  </div>
+
                   {(claimableAt != null || isVoided) && (
                     <>
                       {claimableAt != null && (
@@ -772,6 +777,11 @@ const baseStyles = `
     }
     .valueRight {
       font-weight: 600;
+    }
+    .memoText {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.35;
     }
   }
 `;
