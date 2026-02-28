@@ -651,7 +651,7 @@ const baseStyles = `
     border-radius: 999px;
     padding: 8px 12px;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 600;
     line-height: 1;
     text-decoration: none;
     cursor: pointer;
