@@ -591,6 +591,12 @@ const baseStyles = `
     font-weight: 600;
   }
 
+  .memoText {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.35;
+  }
+
   .cardWrap {
     position: relative;
     width: 100%;
@@ -777,11 +783,6 @@ const baseStyles = `
     }
     .valueRight {
       font-weight: 600;
-    }
-    .memoText {
-      white-space: pre-wrap;
-      word-break: break-word;
-      line-height: 1.35;
     }
   }
 `;
