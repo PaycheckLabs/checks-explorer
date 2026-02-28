@@ -11,12 +11,12 @@ type SerialRecord = {
   network: string;
   contract: string;
   tokenId: number;
+  memo?: string;
   mintTx?: string;
   transferTx?: string;
   redeemTx?: string;
   voidTx?: string;
   claimableAt?: number; // unix seconds
-  memo?: string;
 };
 
 type PageProps = {
@@ -614,7 +614,7 @@ const baseStyles = `
   .qrOuter {
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
-    top: 138px;   /* tuned */
+    top: 135px;   /* tuned */
     width: 101px;
     height: 101px;
     background: #ffffff;
@@ -656,7 +656,7 @@ const baseStyles = `
     flex-wrap: wrap;
   }
 
-    .detailsBtnRow {
+  .detailsBtnRow {
     margin-bottom: 8px;
   }
 
@@ -766,7 +766,7 @@ const baseStyles = `
 
     .qrOuter {
       right: 16px;
-      top: 130px;
+      top: 127px;
       width: 97px;
       height: 97px;
       border-radius: 8px;
