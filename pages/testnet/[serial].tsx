@@ -244,6 +244,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
             <span className="chip">Testnet</span>
             <span className="dot">•</span>
             <span className="chip">Polygon Amoy (80002)</span>
+            <span className="dot">•</span>
             <span className="chipStatus">
               <span className="chipLabel">Status</span>
               <span className={`chipValue ${isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""}`}>
@@ -699,12 +700,13 @@ const baseStyles = `
 
   .hashLine,
   .hashLink {
-    border: 1px solid #e5e7eb;
-    border-radius: 14px;
-    padding: 10px 12px;
-    background: #ffffff;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    background: transparent;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    display: block;
   }
 
   .hashLink {
