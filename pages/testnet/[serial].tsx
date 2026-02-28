@@ -612,11 +612,11 @@ const baseStyles = `
   .qrOuter {
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
-    top: 142px;   /* tuned */
+    top: 143px;   /* tuned */
     width: 106px;
     height: 106px;
     background: #ffffff;
-    border-radius: 6px;
+    border-radius: 7px;
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
     display: flex;
@@ -770,10 +770,10 @@ const baseStyles = `
 
     .qrOuter {
       right: 16px;
-      top: 134px;
+      top: 135px;
       width: 102px;
       height: 102px;
-      border-radius: 6px;
+      border-radius: 7px;
     }
 
     .qrImg {
