@@ -255,7 +255,6 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
           </div>
 
           <div className="grid">
-            {/* LEFT: Card */}
             <div className="stack">
               <div className="panel">
                 <div className="cardWrap">
@@ -305,7 +304,6 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
               </div>
             </div>
 
-            {/* RIGHT: Details + Links */}
             <div className="stack">
               <div className="panel">
                 <h2 className="h2">Details</h2>
@@ -618,13 +616,9 @@ const baseStyles = `
     width: 101px;
     height: 101px;
     background: #ffffff;
-
-    /* slightly sharper than before */
     border-radius: 8px;
-
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-
     display: flex;
     align-items: center;
     justify-content: center;
@@ -634,10 +628,7 @@ const baseStyles = `
   .qrImg {
     width: 90px;
     height: 90px;
-
-    /* QR MUST be sharp corners */
     border-radius: 0px;
-
     display: block;
   }
 
@@ -763,6 +754,19 @@ const baseStyles = `
     .title {
       font-size: 44px;
     }
+  }
+
+  /* QR shrinks ONLY on true mobile */
+  @media (max-width: 520px) {
+    .title {
+      font-size: 42px;
+    }
+    .detailGrid {
+      grid-template-columns: 1fr;
+    }
+    .valueRight {
+      font-weight: 600;
+    }
 
     .qrOuter {
       right: 16px;
@@ -776,18 +780,6 @@ const baseStyles = `
       width: 86px;
       height: 86px;
       border-radius: 0px;
-    }
-  }
-
-  @media (max-width: 520px) {
-    .title {
-      font-size: 42px;
-    }
-    .detailGrid {
-      grid-template-columns: 1fr;
-    }
-    .valueRight {
-      font-weight: 600;
     }
   }
 `;
