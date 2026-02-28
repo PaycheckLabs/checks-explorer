@@ -610,7 +610,7 @@ const baseStyles = `
     user-select: none;
   }
 
-  /* QR overlay — stable pixel placement (restored) */
+  /* LOCKED QR overlay — do not edit (see docs/qr-overlay-reference.md) */
   .qrOuter {
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
