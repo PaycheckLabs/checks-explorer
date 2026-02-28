@@ -613,8 +613,8 @@ const baseStyles = `
     position: absolute;
     right: 18px;  /* +10px (moves overlay left) */
     top: 135px;   /* tuned */
-    width: 101px;
-    height: 101px;
+    width: 106px;
+    height: 106px;
     background: #ffffff;
     border-radius: 8px;
     border: 1px solid rgba(15, 23, 42, 0.06);
@@ -626,8 +626,8 @@ const baseStyles = `
   }
 
   .qrImg {
-    width: 90px;
-    height: 90px;
+    width: 95px;
+    height: 95px;
     border-radius: 0px;
     display: block;
   }
@@ -771,8 +771,8 @@ const baseStyles = `
     .qrOuter {
       right: 16px;
       top: 127px;
-      width: 97px;
-      height: 97px;
+      width: 102px;
+      height: 102px;
       border-radius: 8px;
     }
 
