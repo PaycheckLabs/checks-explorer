@@ -16,6 +16,7 @@ type SerialRecord = {
   redeemTx?: string;
   voidTx?: string;
   claimableAt?: number; // unix seconds
+  memo?: string;
 };
 
 type PageProps = {
