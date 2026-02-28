@@ -601,7 +601,7 @@ const baseStyles = `
     background: #ffffff;
 
     /* slightly sharper than before */
-    border-radius: 10px;
+    border-radius: 9px;
 
     border: 1px solid rgba(15, 23, 42, 0.06);
     box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
@@ -735,7 +735,7 @@ const baseStyles = `
       top: 123px;
       width: 103px;
       height: 103px;
-      border-radius: 10px;
+      border-radius: 9px;
     }
 
     .qrImg {
