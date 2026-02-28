@@ -314,7 +314,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
                   <div className="label">Contract</div>
                   <div className="valueRight">
-                    <div className="hashLine monoNoWrap">{record.contract}</div>
+                    <div className="contractBox monoNoWrap">{record.contract}</div>
                     <div className="btnRow">
                       <button
                         className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
@@ -384,7 +384,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
 
               <div className="footer">
                 <div className="muted">Powered by Checks</div>
-                <div className="muted">Tip: TokenIDs may repeat due to early multi-contract testing.</div>
+                <div className="muted">Tip: This is an early explorer view. Full experience coming soon.</div>
               </div>
             </div>
           </div>
@@ -473,7 +473,7 @@ const baseStyles = `
   }
 
   .title {
-    font-size: 52px;
+    font-size: 48px;
     line-height: 1.02;
     margin: 10px 0 14px 0;
     font-weight: 800;
@@ -494,7 +494,7 @@ const baseStyles = `
     border-radius: 999px;
     padding: 6px 12px;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     color: #0f172a;
   }
 
@@ -508,27 +508,29 @@ const baseStyles = `
     border-radius: 999px;
     padding: 6px 12px;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     display: inline-flex;
     gap: 10px;
     align-items: center;
   }
 
   .chipLabel {
-    color: #64748b;
-    font-weight: 700;
+    color: #0f172a;
+    font-weight: 600;
   }
 
   .chipValue {
-    font-weight: 800;
+    font-weight: 600;
   }
 
   .chipGreen {
     color: #16a34a;
+    font-weight: 800;
   }
 
   .chipRed {
     color: #dc2626;
+    font-weight: 800;
   }
 
   .grid {
@@ -568,9 +570,13 @@ const baseStyles = `
   .detailGrid {
     display: grid;
     grid-template-columns: 160px 1fr;
-    row-gap: 10px;
-    column-gap: 14px;
-    align-items: center;
+    row-gap: 14px;
+    column-gap: 16px;
+    align-items: start;
+  }
+
+  .detailGrid .label {
+    margin-bottom: 0;
   }
 
   .valueRight {
@@ -682,6 +688,15 @@ const baseStyles = `
     gap: 6px;
   }
 
+  .contractBox {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .hashLine,
   .hashLink {
     border: 1px solid #e5e7eb;
@@ -727,7 +742,7 @@ const baseStyles = `
       gap: 18px;
     }
     .title {
-      font-size: 46px;
+      font-size: 44px;
     }
 
     .qrOuter {
@@ -747,7 +762,7 @@ const baseStyles = `
 
   @media (max-width: 520px) {
     .title {
-      font-size: 44px;
+      font-size: 42px;
     }
     .detailGrid {
       grid-template-columns: 1fr;
