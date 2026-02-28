@@ -317,7 +317,7 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                   <div className="label">Contract</div>
                   <div className="valueRight">
                     <div className="contractBox monoNoWrap">{record.contract}</div>
-                    <div className="btnRow">
+                    <div className="btnRow detailsBtnRow">
                       <button
                         className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
                         onClick={() => copyToClipboard(record.contract, "contract")}
@@ -577,7 +577,7 @@ const baseStyles = `
   .detailGrid {
     display: grid;
     grid-template-columns: 160px 1fr;
-    row-gap: 14px;
+    row-gap: 18px;
     column-gap: 16px;
     align-items: start;
   }
@@ -656,6 +656,10 @@ const baseStyles = `
     flex-wrap: wrap;
   }
 
+    .detailsBtnRow {
+    margin-bottom: 8px;
+  }
+
   .pillBtn,
   .pillBtnLink {
     border: 1px solid #e5e7eb;
@@ -702,12 +706,13 @@ const baseStyles = `
   }
 
   .contractBox {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 10px 12px;
-    background: #f8fafc;
+    border: none;
+    border-radius: 0;
+    padding: 2px 0;
+    background: transparent;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    display: block;
   }
 
   .hashLine,
