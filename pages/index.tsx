@@ -191,7 +191,7 @@ export default function Home() {
       <footer className="footer">
         <div className="muted">Powered by Checks</div>
         <div className="tip">
-          Tip: TokenIDs may repeat due to early multi-contract testing.
+          Tip: Mobile view is still being optimized. Best experience on PC.
         </div>
       </footer>
 
