@@ -755,10 +755,6 @@ const baseStyles = `
       font-size: 44px;
     }
   }
-      .qrOuter {
-      right: 8px;
-      top: 140px;
-    }
 
   /* QR shrinks ONLY on true mobile */
   @media (max-width: 520px) {
