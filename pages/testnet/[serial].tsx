@@ -414,15 +414,10 @@ const amoyClient = createPublicClient({
 });
 
 // --- viem TS compat ---
-// Some toolchains require `authorizationList` in typed call params.
-// This keeps the build green without changing runtime behavior.
-const AUTH_LIST: any[] = [];
-
+// viem's typings can vary across toolchains; to keep builds stable we cast the
+// params to `any` without sending extra/unsupported RPC fields (like `authorizationList`).
 async function readContractCompat<T = unknown>(params: any): Promise<T> {
-  return (await amoyClient.readContract({
-    ...params,
-    authorizationList: AUTH_LIST,
-  } as any)) as T;
+  return (await amoyClient.readContract(params as any)) as T;
 }
 
 
