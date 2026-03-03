@@ -3,6 +3,18 @@ import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  createPublicClient,
+  fallback,
+  formatUnits,
+  hexToString,
+  http,
+  parseAbiItem,
+  stringToHex,
+  type Hex,
+} from "viem";
+import { polygonAmoy } from "viem/chains";
+
 import serials from "../../data/testnet-serials.json";
 import { isValidSerialFormat, normalizeSerial } from "../../lib/serial";
 
@@ -181,34 +193,9 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
     }
   }
 
+  // If not curated, fall back to on-chain lookup (client-side).
   if (!record) {
-    return (
-      <>
-        <Head>
-          <title>{title}</title>
-          <meta name="robots" content="noindex,nofollow" />
-        </Head>
-
-        <div className="page">
-          <div className="container">
-            <div className="topBar">
-              <Link href="/" className="backLink">
-                ← Checks Explorer
-              </Link>
-            </div>
-
-            <h1 className="title">{serial}</h1>
-
-            <div className="panel">
-              <h2 className="h2">Not found</h2>
-              <p className="muted">This serial isn’t in the curated testnet list.</p>
-            </div>
-          </div>
-        </div>
-
-        <style jsx global>{baseStyles}</style>
-      </>
-    );
+    return <OnchainSerialView serial={serial} origin={origin} pageTitle={title} />;
   }
 
   return (
@@ -385,6 +372,517 @@ export default function SerialPage({ serial, record, origin }: PageProps) {
                     <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />
                   )}
                 </ul>
+              </div>
+
+              <div className="footer">
+                <div className="muted">Powered by Checks</div>
+                <div className="muted">Tip: This is an early explorer view. Full experience coming soon.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style jsx global>{baseStyles}</style>
+    </>
+  );
+}
+
+// ---------- on-chain fallback (client-side) ----------
+//
+// If a serial is not in the curated list, we attempt to resolve it on-chain via PCHK.
+// This keeps /testnet/<SERIAL> stable while moving toward the MVP flow.
+
+const AMOY_CHAIN_ID = 80002;
+const AMOY_NAME = "Polygon Amoy (80002)";
+const AMOY_SCAN_BASE = "https://amoy.polygonscan.com";
+
+const AMOY_RPC_PRIMARY = "https://rpc-amoy.polygon.technology/";
+const AMOY_RPC_FALLBACK = "https://polygon-amoy-bor-rpc.publicnode.com/";
+
+// From checks/docs/deployments/amoy-pchk-erc6551.md
+const PCHK_ADDRESS = "0x4dC6db5f06DAF4716b749EAb8d8efa27BcEE1218";
+const MUSD_ADDRESS = "0xa01C7368672b61AdE32FAEf6aeD5aeC1845dedb5";
+const PCHK_DEPLOY_BLOCK = 34655184n;
+
+const amoyClient = createPublicClient({
+  chain: polygonAmoy,
+  transport: fallback([http(AMOY_RPC_PRIMARY), http(AMOY_RPC_FALLBACK)]),
+});
+
+const PCHK_ABI = [
+  {
+    type: "function",
+    name: "tokenIdForSerial",
+    stateMutability: "view",
+    inputs: [{ name: "serial", type: "bytes32" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getPaymentCheck",
+    stateMutability: "view",
+    inputs: [{ name: "checkId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "issuer", type: "address" },
+          { name: "amount", type: "uint256" },
+          { name: "createdAt", type: "uint64" },
+          { name: "claimableAt", type: "uint64" },
+          { name: "serial", type: "bytes32" },
+          { name: "title", type: "bytes32" },
+          { name: "memo", type: "string" },
+          { name: "status", type: "uint8" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "accountOf",
+    stateMutability: "view",
+    inputs: [{ name: "checkId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "ownerOf",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
+const ERC20_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    type: "function",
+    name: "symbol",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+] as const;
+
+function scanTx(tx: string) {
+  return `${AMOY_SCAN_BASE}/tx/${tx}`;
+}
+
+function scanAddr(addr: string) {
+  return `${AMOY_SCAN_BASE}/address/${addr}`;
+}
+
+function bytes32FromSerial(serial: string): Hex {
+  // Right-padded bytes32, matching Solidity bytes32("...") and cast format-bytes32-string behavior.
+  return stringToHex(serial, { size: 32 });
+}
+
+function bytes32ToTrimmedAscii(b32?: Hex | null): string {
+  if (!b32) return "";
+  try {
+    return hexToString(b32, { size: 32 }).replace(/\0+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function statusToText(status: number) {
+  // Status { NONE=0, ACTIVE=1, REDEEMED=2, VOID=3 }
+  if (status === 3) return "Voided";
+  if (status === 2) return "Redeemed";
+  if (status === 1) return "Active";
+  return "Unknown";
+}
+
+type OnchainViewModel = {
+  tokenId: bigint;
+  issuer: string;
+  holder: string;
+  tba: string;
+  amount: bigint;
+  decimals: number;
+  symbol: string;
+  claimableAt: bigint;
+  title: string;
+  memo: string;
+  status: number;
+  mintTx: string | null;
+  redeemTx: string | null;
+  voidTx: string | null;
+  tbaBalance: bigint;
+};
+
+function OnchainSerialView({
+  serial,
+  origin,
+  pageTitle,
+}: {
+  serial: string;
+  origin: string;
+  pageTitle: string;
+}) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [vm, setVm] = useState<OnchainViewModel | null>(null);
+
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      setLoading(true);
+      setNotFound(false);
+      setError(null);
+      setVm(null);
+
+      try {
+        const serialB32 = bytes32FromSerial(serial);
+
+        const tokenId = (await amoyClient.readContract({
+          address: PCHK_ADDRESS,
+          abi: PCHK_ABI,
+          functionName: "tokenIdForSerial",
+          args: [serialB32],
+        })) as bigint;
+
+        if (!alive) return;
+
+        if (!tokenId || tokenId === 0n) {
+          setNotFound(true);
+          setLoading(false);
+          return;
+        }
+
+        const pc = (await amoyClient.readContract({
+          address: PCHK_ADDRESS,
+          abi: PCHK_ABI,
+          functionName: "getPaymentCheck",
+          args: [tokenId],
+        })) as any;
+
+        const tba = (await amoyClient.readContract({
+          address: PCHK_ADDRESS,
+          abi: PCHK_ABI,
+          functionName: "accountOf",
+          args: [tokenId],
+        })) as string;
+
+        const holder = (await amoyClient.readContract({
+          address: PCHK_ADDRESS,
+          abi: PCHK_ABI,
+          functionName: "ownerOf",
+          args: [tokenId],
+        })) as string;
+
+        const decimals = Number(
+          (await amoyClient.readContract({
+            address: MUSD_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "decimals",
+          })) as number
+        );
+
+        const symbol = String(
+          (await amoyClient.readContract({
+            address: MUSD_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "symbol",
+          })) as string
+        );
+
+        const tbaBalance = (await amoyClient.readContract({
+          address: MUSD_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: "balanceOf",
+          args: [tba],
+        })) as bigint;
+
+        // Events -> tx hashes
+        const mintedEvent = parseAbiItem(
+          "event PaymentCheckMinted(uint256 indexed checkId, bytes32 indexed serial, address indexed issuer, address initialHolder, address token, uint256 amount, uint64 claimableAt, address account)"
+        );
+        const redeemedEvent = parseAbiItem(
+          "event PaymentCheckRedeemed(uint256 indexed checkId, address indexed redeemer, address token, uint256 amount, address account)"
+        );
+        const voidedEvent = parseAbiItem(
+          "event PaymentCheckVoided(uint256 indexed checkId, address indexed issuer, address token, uint256 amount, address account)"
+        );
+
+        const [mints, redeems, voids] = await Promise.all([
+          amoyClient.getLogs({
+            address: PCHK_ADDRESS,
+            event: mintedEvent,
+            args: { checkId: tokenId },
+            fromBlock: PCHK_DEPLOY_BLOCK,
+            toBlock: "latest",
+          }),
+          amoyClient.getLogs({
+            address: PCHK_ADDRESS,
+            event: redeemedEvent,
+            args: { checkId: tokenId },
+            fromBlock: PCHK_DEPLOY_BLOCK,
+            toBlock: "latest",
+          }),
+          amoyClient.getLogs({
+            address: PCHK_ADDRESS,
+            event: voidedEvent,
+            args: { checkId: tokenId },
+            fromBlock: PCHK_DEPLOY_BLOCK,
+            toBlock: "latest",
+          }),
+        ]);
+
+        if (!alive) return;
+
+        const status = Number(pc?.status ?? 0);
+
+        setVm({
+          tokenId,
+          issuer: String(pc?.issuer ?? ""),
+          holder,
+          tba,
+          amount: (pc?.amount ?? 0n) as bigint,
+          decimals,
+          symbol,
+          claimableAt: (pc?.claimableAt ?? 0n) as bigint,
+          title: bytes32ToTrimmedAscii(pc?.title as Hex),
+          memo: String(pc?.memo ?? ""),
+          status,
+          mintTx: mints?.[0]?.transactionHash ?? null,
+          redeemTx: redeems?.[0]?.transactionHash ?? null,
+          voidTx: voids?.[0]?.transactionHash ?? null,
+          tbaBalance,
+        });
+
+        setLoading(false);
+      } catch {
+        if (!alive) return;
+        setError("On-chain lookup failed. Please retry in a moment.");
+        setLoading(false);
+      }
+    }
+
+    run();
+
+    return () => {
+      alive = false;
+    };
+  }, [serial]);
+
+  async function copyToClipboard(textToCopy: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200);
+    } catch {
+      // ignore
+    }
+  }
+
+  const claimableAtMs = vm?.claimableAt ? Number(vm.claimableAt) * 1000 : null;
+  const countdown = claimableAtMs != null ? msToHuman(claimableAtMs - nowMs) : null;
+
+  const amountHuman = vm ? `${formatUnits(vm.amount, vm.decimals)} ${vm.symbol}` : "—";
+  const tbaBalHuman = vm ? `${formatUnits(vm.tbaBalance, vm.decimals)} ${vm.symbol}` : "—";
+
+  const statusText = vm ? statusToText(vm.status) : "—";
+  const isVoided = vm?.status === 3;
+  const isRedeemed = vm?.status === 2;
+
+  const claimStatusText = useMemo(() => {
+    if (!vm) return null;
+    if (isVoided) return "This check was voided before it became claimable.";
+    if (!claimableAtMs) return null;
+    if (nowMs >= claimableAtMs) return "Claimable now.";
+    return `Claimable in ${countdown}`;
+  }, [vm, isVoided, claimableAtMs, nowMs, countdown]);
+
+  return (
+    <>
+      <Head>
+        <title>{pageTitle}</title>
+        <meta name="robots" content="noindex,nofollow" />
+        <meta name="description" content="Checks Explorer testnet serial page (on-chain lookup)." />
+      </Head>
+
+      <div className="page">
+        <div className="container">
+          <div className="topBar">
+            <Link href="/" className="backLink">
+              ← Checks Explorer
+            </Link>
+
+            <button
+              className={`pillBtn ${copiedKey === "page" ? "copied" : ""}`}
+              onClick={() => copyToClipboard(`${origin}/testnet/${serial}`, "page")}
+              type="button"
+            >
+              {copiedKey === "page" ? "Copied" : "Copy page link"}
+            </button>
+          </div>
+
+          <h1 className="title">{serial}</h1>
+
+          <div className="chips">
+            <span className="chip">Testnet</span>
+            <span className="dot">•</span>
+            <span className="chip">{AMOY_NAME}</span>
+            <span className="dot">•</span>
+            <span className="chipStatus">
+              <span className="chipLabel">Status</span>
+              <span className={`chipValue ${isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""}`}>
+                {statusText}
+              </span>
+            </span>
+          </div>
+
+          <div className="grid">
+            <div className="stack">
+              <div className="panel">
+                <h2 className="h2">Preview</h2>
+                <div className="imgFail">
+                  <div className="label">On-chain check</div>
+                  <div className="muted">
+                    This serial is not in the curated image list. A “printed check” preview will be added as we wire the mint UI.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="stack">
+              <div className="panel">
+                <h2 className="h2">Details</h2>
+
+                {loading && <p className="muted">Loading on-chain data…</p>}
+
+                {error && (
+                  <div className="imgFail">
+                    <div className="label">Error</div>
+                    <div className="muted">{error}</div>
+                  </div>
+                )}
+
+                {notFound && !loading && !error && (
+                  <div className="imgFail">
+                    <div className="label">Not found</div>
+                    <div className="muted">This serial isn’t in the curated list and no on-chain check was found.</div>
+                  </div>
+                )}
+
+                {vm && !loading && !error && (
+                  <div className="detailGrid">
+                    <div className="label">Network</div>
+                    <div className="valueRight">{AMOY_NAME}</div>
+
+                    <div className="label">Contract</div>
+                    <div className="valueRight">
+                      <div className="contractBox monoNoWrap">{PCHK_ADDRESS}</div>
+                      <div className="btnRow detailsBtnRow">
+                        <button
+                          className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
+                          onClick={() => copyToClipboard(PCHK_ADDRESS, "contract")}
+                          type="button"
+                        >
+                          {copiedKey === "contract" ? "Copied" : "Copy"}
+                        </button>
+                        <a className="pillBtnLink" href={scanAddr(PCHK_ADDRESS)} target="_blank" rel="noreferrer">
+                          Open in Polygonscan
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="label">TokenID</div>
+                    <div className="valueRight">{vm.tokenId.toString()}</div>
+
+                    <div className="label">Issuer</div>
+                    <div className="valueRight">
+                      <a className="hashLink monoNoWrap" href={scanAddr(vm.issuer)} target="_blank" rel="noreferrer">
+                        {vm.issuer}
+                      </a>
+                    </div>
+
+                    <div className="label">Holder</div>
+                    <div className="valueRight">
+                      <a className="hashLink monoNoWrap" href={scanAddr(vm.holder)} target="_blank" rel="noreferrer">
+                        {vm.holder}
+                      </a>
+                    </div>
+
+                    <div className="label">TBA</div>
+                    <div className="valueRight">
+                      <a className="hashLink monoNoWrap" href={scanAddr(vm.tba)} target="_blank" rel="noreferrer">
+                        {vm.tba}
+                      </a>
+                    </div>
+
+                    <div className="label">Amount</div>
+                    <div className="valueRight">{amountHuman}</div>
+
+                    <div className="label">TBA balance</div>
+                    <div className="valueRight">{tbaBalHuman}</div>
+
+                    <div className="label">Title</div>
+                    <div className="valueRight">{vm.title || "—"}</div>
+
+                    <div className="label">Memo</div>
+                    <div className="valueRight">
+                      <div className="memoText">{vm.memo || "—"}</div>
+                    </div>
+
+                    <div className="label">Post-dated until</div>
+                    <div className="valueRight">{formatUtc(Number(vm.claimableAt))}</div>
+
+                    <div className="label">Claim countdown</div>
+                    <div className="valueRight">
+                      {claimableAtMs != null
+                        ? nowMs >= claimableAtMs
+                          ? "Claimable now"
+                          : `Claimable in ${countdown}`
+                        : "—"}
+                    </div>
+
+                    <div className="label">Status</div>
+                    <div className="valueRight">{claimStatusText || "—"}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="panel">
+                <h2 className="h2">Links</h2>
+
+                {vm ? (
+                  <ul className="ul">
+                    <HashItem label="Mint" hash={vm.mintTx} copiedKey={copiedKey} onCopy={copyToClipboard} />
+                    <HashItem label="Redeem" hash={vm.redeemTx} copiedKey={copiedKey} onCopy={copyToClipboard} />
+                    <HashItem label="Void" hash={vm.voidTx} copiedKey={copiedKey} onCopy={copyToClipboard} />
+                  </ul>
+                ) : (
+                  <p className="muted">Not available</p>
+                )}
               </div>
 
               <div className="footer">
