@@ -410,6 +410,19 @@ const amoyClient = createPublicClient({
   transport: fallback([http(AMOY_RPC_PRIMARY), http(AMOY_RPC_FALLBACK)]),
 });
 
+// --- viem TS compat ---
+// Some toolchains require `authorizationList` in typed call params.
+// This keeps the build green without changing runtime behavior.
+const AUTH_LIST: any[] = [];
+
+async function readContractCompat<T = unknown>(params: any): Promise<T> {
+  return (await amoyClient.readContract({
+    ...params,
+    authorizationList: AUTH_LIST,
+  } as any)) as T;
+}
+
+
 const PCHK_ABI = [
   {
     type: "function",
@@ -562,7 +575,7 @@ function OnchainSerialView({
       try {
         const serialB32 = bytes32FromSerial(serial);
 
-        const tokenId = (await amoyClient.readContract({
+        const tokenId = (await readContractCompat({
           address: PCHK_ADDRESS,
           abi: PCHK_ABI,
           functionName: "tokenIdForSerial",
@@ -577,21 +590,21 @@ function OnchainSerialView({
           return;
         }
 
-        const pc = (await amoyClient.readContract({
+        const pc = (await readContractCompat({
           address: PCHK_ADDRESS,
           abi: PCHK_ABI,
           functionName: "getPaymentCheck",
           args: [tokenId],
         })) as any;
 
-        const tba = (await amoyClient.readContract({
+        const tba = (await readContractCompat({
           address: PCHK_ADDRESS,
           abi: PCHK_ABI,
           functionName: "accountOf",
           args: [tokenId],
         })) as string;
 
-        const holder = (await amoyClient.readContract({
+        const holder = (await readContractCompat({
           address: PCHK_ADDRESS,
           abi: PCHK_ABI,
           functionName: "ownerOf",
@@ -599,7 +612,7 @@ function OnchainSerialView({
         })) as string;
 
         const decimals = Number(
-          (await amoyClient.readContract({
+          (await readContractCompat({
             address: MUSD_ADDRESS,
             abi: ERC20_ABI,
             functionName: "decimals",
@@ -607,14 +620,14 @@ function OnchainSerialView({
         );
 
         const symbol = String(
-          (await amoyClient.readContract({
+          (await readContractCompat({
             address: MUSD_ADDRESS,
             abi: ERC20_ABI,
             functionName: "symbol",
           })) as string
         );
 
-        const tbaBalance = (await amoyClient.readContract({
+        const tbaBalance = (await readContractCompat({
           address: MUSD_ADDRESS,
           abi: ERC20_ABI,
           functionName: "balanceOf",
