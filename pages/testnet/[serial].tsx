@@ -397,8 +397,8 @@ const AMOY_CHAIN_ID = 80002;
 const AMOY_NAME = "Polygon Amoy (80002)";
 const AMOY_SCAN_BASE = "https://amoy.polygonscan.com";
 
-const AMOY_RPC_PRIMARY = "https://rpc-amoy.polygon.technology/";
-const AMOY_RPC_FALLBACK = "https://polygon-amoy-bor-rpc.publicnode.com/";
+const AMOY_RPC_PRIMARY = "https://polygon-amoy-bor-rpc.publicnode.com/";
+const AMOY_RPC_FALLBACK = "https://rpc-amoy.polygon.technology/";
 
 // From checks/docs/deployments/amoy-pchk-erc6551.md
 const PCHK_ADDRESS = "0x4dC6db5f06DAF4716b749EAb8d8efa27BcEE1218";
@@ -407,7 +407,10 @@ const PCHK_DEPLOY_BLOCK = 34655184n;
 
 const amoyClient = createPublicClient({
   chain: polygonAmoy,
-  transport: fallback([http(AMOY_RPC_PRIMARY), http(AMOY_RPC_FALLBACK)]),
+  transport: fallback([
+    http(AMOY_RPC_PRIMARY, { timeout: 15_000, retryCount: 2, retryDelay: 500 }),
+    http(AMOY_RPC_FALLBACK, { timeout: 15_000, retryCount: 1, retryDelay: 500 }),
+  ]),
 });
 
 // --- viem TS compat ---
@@ -634,40 +637,56 @@ function OnchainSerialView({
           args: [tba],
         })) as bigint;
 
-        // Events -> tx hashes
-        const mintedEvent = parseAbiItem(
-          "event PaymentCheckMinted(uint256 indexed checkId, bytes32 indexed serial, address indexed issuer, address initialHolder, address token, uint256 amount, uint64 claimableAt, address account)"
-        );
-        const redeemedEvent = parseAbiItem(
-          "event PaymentCheckRedeemed(uint256 indexed checkId, address indexed redeemer, address token, uint256 amount, address account)"
-        );
-        const voidedEvent = parseAbiItem(
-          "event PaymentCheckVoided(uint256 indexed checkId, address indexed issuer, address token, uint256 amount, address account)"
-        );
+        // Events -> tx hashes (optional)
+        // Some RPC providers block getLogs in the browser. We treat log lookups as best-effort.
+        let mintTx: string | null = null;
+        let redeemTx: string | null = null;
+        let voidTx: string | null = null;
 
-        const [mints, redeems, voids] = await Promise.all([
-          amoyClient.getLogs({
-            address: PCHK_ADDRESS,
-            event: mintedEvent,
-            args: { checkId: tokenId },
-            fromBlock: PCHK_DEPLOY_BLOCK,
-            toBlock: "latest",
-          }),
-          amoyClient.getLogs({
-            address: PCHK_ADDRESS,
-            event: redeemedEvent,
-            args: { checkId: tokenId },
-            fromBlock: PCHK_DEPLOY_BLOCK,
-            toBlock: "latest",
-          }),
-          amoyClient.getLogs({
-            address: PCHK_ADDRESS,
-            event: voidedEvent,
-            args: { checkId: tokenId },
-            fromBlock: PCHK_DEPLOY_BLOCK,
-            toBlock: "latest",
-          }),
-        ]);
+        try {
+          const mintedEvent = parseAbiItem(
+            "event PaymentCheckMinted(uint256 indexed checkId, bytes32 indexed serial, address indexed issuer, address initialHolder, address token, uint256 amount, uint64 claimableAt, address account)"
+          );
+          const redeemedEvent = parseAbiItem(
+            "event PaymentCheckRedeemed(uint256 indexed checkId, address indexed redeemer, address token, uint256 amount, address account)"
+          );
+          const voidedEvent = parseAbiItem(
+            "event PaymentCheckVoided(uint256 indexed checkId, address indexed issuer, address token, uint256 amount, address account)"
+          );
+
+          const [mints, redeems, voids] = await Promise.all([
+            amoyClient.getLogs({
+              address: PCHK_ADDRESS,
+              event: mintedEvent,
+              args: { checkId: tokenId },
+              fromBlock: PCHK_DEPLOY_BLOCK,
+              toBlock: "latest",
+            }),
+            amoyClient.getLogs({
+              address: PCHK_ADDRESS,
+              event: redeemedEvent,
+              args: { checkId: tokenId },
+              fromBlock: PCHK_DEPLOY_BLOCK,
+              toBlock: "latest",
+            }),
+            amoyClient.getLogs({
+              address: PCHK_ADDRESS,
+              event: voidedEvent,
+              args: { checkId: tokenId },
+              fromBlock: PCHK_DEPLOY_BLOCK,
+              toBlock: "latest",
+            }),
+          ]);
+
+          mintTx = mints?.[0]?.transactionHash ?? null;
+          redeemTx = redeems?.[0]?.transactionHash ?? null;
+          voidTx = voids?.[0]?.transactionHash ?? null;
+        } catch {
+          mintTx = null;
+          redeemTx = null;
+          voidTx = null;
+        }
+
 
         if (!alive) return;
 
@@ -684,17 +703,17 @@ function OnchainSerialView({
           claimableAt: (pc?.claimableAt ?? 0n) as bigint,
           title: bytes32ToTrimmedAscii(pc?.title as Hex),
           memo: String(pc?.memo ?? ""),
-          status,
-          mintTx: mints?.[0]?.transactionHash ?? null,
-          redeemTx: redeems?.[0]?.transactionHash ?? null,
-          voidTx: voids?.[0]?.transactionHash ?? null,
+          status,          mintTx,
+          redeemTx,
+          voidTx,
           tbaBalance,
         });
 
         setLoading(false);
-      } catch {
+      } catch (e: any) {
         if (!alive) return;
-        setError("On-chain lookup failed. Please retry in a moment.");
+        const msg = e?.shortMessage || e?.message || (typeof e === 'string' ? e : 'On-chain lookup failed.');
+        setError(msg);
         setLoading(false);
       }
     }
