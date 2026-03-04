@@ -12,8 +12,8 @@ export const wagmiConfig = createConfig({
   connectors: [injected({ shimDisconnect: true })],
   transports: {
     [polygonAmoy.id]: fallback([
-      http(RPC_PRIMARY, { timeout: 15000, retryCount: 2, retryDelay: 500 }),
-      http(RPC_FALLBACK, { timeout: 15000, retryCount: 1, retryDelay: 500 })
-    ])
-  }
+      http(RPC_PRIMARY, { timeout: 15_000, retryCount: 2, retryDelay: 500 }),
+      http(RPC_FALLBACK, { timeout: 15_000, retryCount: 1, retryDelay: 500 }),
+    ]),
+  },
 });
