@@ -1,7 +1,14 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { parseUnits, stringToHex, type Hex } from "viem";
+import {
+  formatUnits,
+  parseUnits,
+  stringToHex,
+  type Abi,
+  type Address,
+  type Hex,
+} from "viem";
 import {
   useAccount,
   useBalance,
@@ -11,15 +18,16 @@ import {
   usePublicClient,
   useReadContract,
   useSwitchChain,
-  useWriteContract
+  useWriteContract,
 } from "wagmi";
+
 import {
   AMOY_CHAIN_ID,
   MAX_UINT256,
   MUSD_ABI,
   MUSD_ADDRESS,
   PCHK_ABI,
-  PCHK_ADDRESS
+  PCHK_ADDRESS,
 } from "../../../lib/testnetContracts";
 
 type Draft = {
@@ -29,7 +37,7 @@ type Draft = {
   amount: string;
   recipient: string;
   claimableAtMode: "instant" | "postdated";
-  claimableAt: string;
+  claimableAt: string; // ISO string from <input type="datetime-local">
   serial?: string;
 };
 
@@ -41,13 +49,19 @@ function randInt(min: number, max: number) {
 function randChar(set: string) {
   return set[randInt(0, set.length - 1)];
 }
+
+// Format: AAA-1234BB-CC12 (no I/O to reduce confusion)
 function generateSerial(): string {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const digits = "0123456789";
   const a = `${randChar(letters)}${randChar(letters)}${randChar(letters)}`;
-  const b = `${randChar(digits)}${randChar(digits)}${randChar(digits)}${randChar(digits)}`;
+  const b = `${randChar(digits)}${randChar(digits)}${randChar(digits)}${randChar(
+    digits
+  )}`;
   const c = `${randChar(letters)}${randChar(letters)}`;
-  const d = `${randChar(letters)}${randChar(letters)}${randChar(digits)}${randChar(digits)}`;
+  const d = `${randChar(letters)}${randChar(letters)}${randChar(digits)}${randChar(
+    digits
+  )}`;
   return `${a}-${b}${c}-${d}`;
 }
 
@@ -70,22 +84,32 @@ export default function PaymentPreview() {
   const { connect, connectors, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
-  const { writeContractAsync } = useWriteContract();
+
+  // NOTE: This cast is intentional to keep TS strict mode + wagmi v3 happy on Vercel.
+  const { writeContractAsync } = useWriteContract() as unknown as {
+    writeContractAsync: (args: any) => Promise<`0x${string}`>;
+  };
+
   const publicClient = usePublicClient({ chainId: AMOY_CHAIN_ID });
 
   const supported = isConnected && chainId === AMOY_CHAIN_ID;
 
+  // Narrow the constants to wagmi/viem-friendly types
+  const MUSD = MUSD_ADDRESS as Address;
+  const PCHK = PCHK_ADDRESS as Address;
+  const MUSD_ABI_T = MUSD_ABI as unknown as Abi;
+  const PCHK_ABI_T = PCHK_ABI as unknown as Abi;
+
   // token meta
   const decimalsRes = useReadContract({
-    address: MUSD_ADDRESS,
-    abi: MUSD_ABI,
-    functionName: "decimals"
+    address: MUSD,
+    abi: MUSD_ABI_T,
+    functionName: "decimals",
   });
-
   const symbolRes = useReadContract({
-    address: MUSD_ADDRESS,
-    abi: MUSD_ABI,
-    functionName: "symbol"
+    address: MUSD,
+    abi: MUSD_ABI_T,
+    functionName: "symbol",
   });
 
   const decimals = Number(decimalsRes.data ?? 6);
@@ -93,25 +117,25 @@ export default function PaymentPreview() {
 
   // balances + allowance
   const musdBalRes = useReadContract({
-    address: MUSD_ADDRESS,
-    abi: MUSD_ABI,
+    address: MUSD,
+    abi: MUSD_ABI_T,
     functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: Boolean(address) }
+    args: address ? [address as Address] : undefined,
+    query: { enabled: Boolean(address) },
   });
 
   const allowanceRes = useReadContract({
-    address: MUSD_ADDRESS,
-    abi: MUSD_ABI,
+    address: MUSD,
+    abi: MUSD_ABI_T,
     functionName: "allowance",
-    args: address ? [address, PCHK_ADDRESS] : undefined,
-    query: { enabled: Boolean(address) }
+    args: address ? [address as Address, PCHK] : undefined,
+    query: { enabled: Boolean(address) },
   });
 
   const polBal = useBalance({
-    address,
+    address: address as Address | undefined,
     chainId: AMOY_CHAIN_ID,
-    query: { enabled: Boolean(address) }
+    query: { enabled: Boolean(address) },
   });
 
   useEffect(() => {
@@ -155,10 +179,6 @@ export default function PaymentPreview() {
     return draft.claimableAt ? `Post-dated: ${draft.claimableAt}` : "Post-dated";
   }, [draft]);
 
-  function goBack() {
-    window.location.href = "/testnet/payment/mint";
-  }
-
   function bytes32FromString(s: string): Hex {
     return stringToHex(s, { size: 32 });
   }
@@ -168,22 +188,30 @@ export default function PaymentPreview() {
     if (!draft.title.trim()) return "Title is required.";
     if (!draft.recipient.trim()) return "Recipient is required.";
     if (amountUnits <= 0n) return "Enter a valid amount.";
+
     // memo <= 160 bytes
     const memoBytes = new TextEncoder().encode(draft.memo || "");
     if (memoBytes.length > 160) return "Memo is too long (max 160 bytes).";
-    // title <= 32 bytes (safe)
+
+    // title <= 32 bytes
     const titleBytes = new TextEncoder().encode(draft.title.trim());
     if (titleBytes.length > 32) return "Title is too long (max 32 bytes).";
-    // serial <= 32 bytes (safe)
+
+    // serial <= 32 bytes
     const serialBytes = new TextEncoder().encode(draft.serial || "");
     if (serialBytes.length > 32) return "Serial is too long (max 32 bytes).";
-    if (draft.claimableAtMode === "postdated" && !draft.claimableAt) return "Choose a post-dated time.";
+
+    if (draft.claimableAtMode === "postdated" && !draft.claimableAt) {
+      return "Choose a post-dated time.";
+    }
+
     return null;
   }
 
   async function ensureAmoy(): Promise<boolean> {
     if (!isConnected) return false;
     if (chainId === AMOY_CHAIN_ID) return true;
+
     try {
       await switchChainAsync({ chainId: AMOY_CHAIN_ID });
       return true;
@@ -195,10 +223,12 @@ export default function PaymentPreview() {
 
   async function getTestMusd() {
     setError(null);
+
     if (!isConnected) {
       setError("Connect your wallet first.");
       return;
     }
+
     const ok = await ensureAmoy();
     if (!ok) return;
 
@@ -209,14 +239,18 @@ export default function PaymentPreview() {
 
     try {
       setStage("faucet");
-      // faucet enough to cover 10x the requested amount (min 1,000 mUSD)
-      const desired = amountUnits > 0n ? amountUnits * 10n : parseUnits("1000", decimals);
+
+      // Faucet enough to cover 10x the requested amount (min 1,000 mUSD)
+      const desired =
+        amountUnits > 0n ? amountUnits * 10n : parseUnits("1000", decimals);
+
       const hash = await writeContractAsync({
-        address: MUSD_ADDRESS,
-        abi: MUSD_ABI,
+        address: MUSD,
+        abi: MUSD_ABI_T,
         functionName: "faucet",
-        args: [desired]
+        args: [desired],
       });
+
       await publicClient.waitForTransactionReceipt({ hash });
       setStage("idle");
     } catch (e: any) {
@@ -227,10 +261,12 @@ export default function PaymentPreview() {
 
   async function approveMusd() {
     setError(null);
+
     if (!isConnected) {
       setError("Connect your wallet first.");
       return;
     }
+
     const ok = await ensureAmoy();
     if (!ok) return;
 
@@ -241,12 +277,14 @@ export default function PaymentPreview() {
 
     try {
       setStage("approve");
+
       const hash = await writeContractAsync({
-        address: MUSD_ADDRESS,
-        abi: MUSD_ABI,
+        address: MUSD,
+        abi: MUSD_ABI_T,
         functionName: "approve",
-        args: [PCHK_ADDRESS, MAX_UINT256]
+        args: [PCHK, MAX_UINT256],
       });
+
       await publicClient.waitForTransactionReceipt({ hash });
       setStage("idle");
     } catch (e: any) {
@@ -257,15 +295,18 @@ export default function PaymentPreview() {
 
   async function mintOnTestnet() {
     setError(null);
+
     const v = validateDraft();
     if (v) {
       setError(v);
       return;
     }
+
     if (!isConnected) {
       setError("Connect your wallet first.");
       return;
     }
+
     const ok = await ensureAmoy();
     if (!ok) return;
 
@@ -278,6 +319,7 @@ export default function PaymentPreview() {
       setError(`Not enough ${symbol}. Use “Get test mUSD” first.`);
       return;
     }
+
     if (!hasAllowance) {
       setError(`Approval needed. Click “Approve ${symbol}” first.`);
       return;
@@ -285,6 +327,7 @@ export default function PaymentPreview() {
 
     try {
       setStage("mint");
+
       const serialB32 = bytes32FromString(draft!.serial!);
       const titleB32 = bytes32FromString(draft!.title.trim());
 
@@ -294,24 +337,25 @@ export default function PaymentPreview() {
           : Math.floor(new Date(draft!.claimableAt).getTime() / 1000);
 
       const hash = await writeContractAsync({
-        address: PCHK_ADDRESS,
-        abi: PCHK_ABI,
+        address: PCHK,
+        abi: PCHK_ABI_T,
         functionName: "mintPaymentCheck",
         args: [
-          draft!.recipient.trim(),
+          draft!.recipient.trim() as Address,
           amountUnits,
           BigInt(claimableAt),
           serialB32,
           titleB32,
-          draft!.memo || ""
-        ]
+          draft!.memo || "",
+        ],
       });
 
       setMintHash(hash);
-      await publicClient.waitForTransactionReceipt({ hash });
 
+      await publicClient.waitForTransactionReceipt({ hash });
       setStage("success");
-      // redirect to explorer by serial
+
+      // Redirect to explorer by serial
       window.location.href = `https://explorer.checks.xyz/testnet/${draft!.serial}`;
     } catch (e: any) {
       setStage("error");
@@ -319,258 +363,439 @@ export default function PaymentPreview() {
     }
   }
 
+  const polText = useMemo(() => {
+    if (!polBal.data) return "—";
+    try {
+      return `${formatUnits(polBal.data.value, polBal.data.decimals)} ${polBal.data.symbol}`;
+    } catch {
+      return `${polBal.data.symbol}`;
+    }
+  }, [polBal.data]);
+
+  const musdText = useMemo(() => {
+    if (!musdBalRes.data) return "—";
+    return `${formatUnits(musdBal, decimals)} ${symbol}`;
+  }, [musdBalRes.data, musdBal, decimals, symbol]);
+
+  const connectConnector =
+    connectors?.find((c) => c.id === "injected") ?? connectors?.[0];
+
   return (
     <>
       <Head>
         <title>Preview Payment Check — Testnet</title>
+        <meta name="robots" content="noindex,nofollow" />
       </Head>
 
-      <div className="page">
-        <div className="container">
-          <header className="top">
-            <Link href="/testnet/payment/mint" className="brand">
-              ← Back to Mint
-            </Link>
-            <div className="netPill">Testnet • Polygon Amoy (80002)</div>
-          </header>
+      <div className="container">
+        <div className="topbar">
+          <Link href="/testnet/payment/mint" className="backLink">
+            ← Back to Mint
+          </Link>
+        </div>
 
-          <h1 className="h1">Preview</h1>
+        <h1 className="title">Preview</h1>
 
-          <div className="panel">
+        <div className="pillRow">
+          <span className="pill">Testnet</span>
+          <span className="pill">Polygon Amoy (80002)</span>
+          <span className={`pill ${supported ? "pillOk" : "pillWarn"}`}>
+            Status {supported ? "Ready" : "Network"}
+          </span>
+        </div>
+
+        <div className="grid">
+          <div className="card">
+            <h2>Wallet</h2>
+
             <div className="row">
-              <div>
-                <div className="label">Wallet</div>
-                {!isConnected ? (
-                  <div className="muted">Not connected</div>
-                ) : (
-                  <div className="mono">{shortAddr(address)}</div>
-                )}
+              <div className="label">Account</div>
+              <div className="value">
+                {!isConnected ? "Not connected" : shortAddr(address)}
               </div>
+            </div>
 
+            <div className="row">
+              <div className="label">Network</div>
+              <div className="value">
+                {isConnected
+                  ? chainId === AMOY_CHAIN_ID
+                    ? "Polygon Amoy ✅"
+                    : `Unsupported ❌ (chainId ${chainId})`
+                  : "—"}
+              </div>
+            </div>
+
+            <div className="btnRow">
               {!isConnected ? (
                 <button
-                  className="btnPrimary"
-                  type="button"
-                  disabled={isConnecting || connectors.length === 0}
-                  onClick={() => connect({ connector: connectors[0] })}
+                  className="btn"
+                  onClick={() =>
+                    connectConnector && connect({ connector: connectConnector })
+                  }
+                  disabled={!connectConnector || isConnecting}
                 >
                   {isConnecting ? "Connecting…" : "Connect Wallet"}
                 </button>
               ) : (
-                <button className="btnGhost" type="button" onClick={() => disconnect()}>
+                <button className="btn" onClick={() => disconnect()}>
                   Disconnect
                 </button>
               )}
+
+              {isConnected && chainId !== AMOY_CHAIN_ID ? (
+                <button
+                  className="btnSecondary"
+                  onClick={() => switchChainAsync({ chainId: AMOY_CHAIN_ID })}
+                  disabled={isSwitching}
+                >
+                  {isSwitching ? "Switching…" : "Switch to Amoy"}
+                </button>
+              ) : null}
             </div>
 
-            {isConnected ? (
-              <div className="row">
-                <div>
-                  <div className="label">Network</div>
-                  <div className={supported ? "good" : "bad"}>
-                    {chainId === AMOY_CHAIN_ID
-                      ? "Polygon Amoy ✅"
-                      : `Unsupported ❌ (chainId ${chainId})`}
-                  </div>
-                </div>
-                {!supported ? (
-                  <button className="btnGhost" type="button" disabled={isSwitching} onClick={() => switchChainAsync({ chainId: AMOY_CHAIN_ID })}>
-                    {isSwitching ? "Switching…" : "Switch to Amoy"}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
+            <h3 className="subhead">Balances (Amoy)</h3>
 
             <div className="row">
-              <div>
-                <div className="label">Balances (Amoy)</div>
-                <div className="muted">POL: <b>{polBal.data ? `${Number(polBal.data.formatted).toFixed(4)} ${polBal.data.symbol}` : "—"}</b></div>
-                <div className="muted">{symbol}: <b>{musdBalRes.data ? String(musdBal / 10n ** BigInt(decimals)) : "—"}</b> (raw)</div>
-              </div>
-              <a className="btnGhostLink" href="https://faucet.polygon.technology/" target="_blank" rel="noreferrer">
+              <div className="label">POL</div>
+              <div className="value">{polText}</div>
+            </div>
+
+            <div className="row">
+              <div className="label">{symbol}</div>
+              <div className="value">{musdText}</div>
+            </div>
+
+            <div className="help">
+              <a
+                href="https://faucet.polygon.technology/"
+                target="_blank"
+                rel="noreferrer"
+              >
                 Get test POL
               </a>
             </div>
           </div>
 
-          {!draft ? (
-            <div className="panel">
-              <div className="label">No draft found</div>
-              <div className="muted">Return to the mint page to enter check details.</div>
-              <div className="btnRow">
-                <Link className="btnPrimary" href="/testnet/payment/mint">
-                  Go to Mint
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <div className="grid">
-              <div className="panel">
-                <h2 className="h2">Preview</h2>
+          <div className="card">
+            <h2>Preview</h2>
 
-                <div className="previewCard">
-                  <div className="pcTop">
-                    <div className="pcBadge">{symbol}</div>
-                    <div className="pcAmt">{draft.amount || "—"} {symbol}</div>
+            {!draft ? (
+              <>
+                <div className="muted">
+                  No draft found. Return to the mint page to enter check details.
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <Link href="/testnet/payment/mint" className="btnLink">
+                    Go to Mint
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="previewBox">
+                  <div className="previewTitle">Payment Check</div>
+
+                  <div className="row">
+                    <div className="label">Serial</div>
+                    <div className="value">{draft.serial}</div>
                   </div>
 
-                  <div className="pcTitle">Payment Check</div>
-
-                  <div className="pcLine">
-                    <span className="pcKey">Serial</span>
-                    <span className="pcVal mono">{draft.serial}</span>
+                  <div className="row">
+                    <div className="label">Title</div>
+                    <div className="value">{draft.title || "—"}</div>
                   </div>
 
-                  <div className="pcLine">
-                    <span className="pcKey">Title</span>
-                    <span className="pcVal">{draft.title || "—"}</span>
+                  <div className="row">
+                    <div className="label">Recipient</div>
+                    <div className="value">{draft.recipient || "—"}</div>
                   </div>
 
-                  <div className="pcLine">
-                    <span className="pcKey">Recipient</span>
-                    <span className="pcVal mono">{draft.recipient || "—"}</span>
+                  <div className="row">
+                    <div className="label">Amount</div>
+                    <div className="value">
+                      {draft.amount || "—"} {symbol}
+                    </div>
                   </div>
 
-                  <div className="pcLine">
-                    <span className="pcKey">Claim</span>
-                    <span className="pcVal">{claimText}</span>
+                  <div className="row">
+                    <div className="label">Claim</div>
+                    <div className="value">{claimText}</div>
                   </div>
 
-                  <div className="pcMemo">
-                    <div className="pcKey">Memo</div>
-                    <div className="pcVal">{draft.memo || "—"}</div>
+                  <div className="row">
+                    <div className="label">Memo</div>
+                    <div className="value">{draft.memo || "—"}</div>
                   </div>
 
-                  <div className="pcFooter muted">
-                    Serial is stored on-chain at mint. QR can be derived from the explorer URL after mint.
+                  <div className="muted" style={{ marginTop: 10 }}>
+                    Serial is stored on-chain at mint. QR can be derived from the
+                    explorer URL after mint.
                   </div>
                 </div>
 
-                {error ? <div className="warn">{error}</div> : null}
+                {error ? <div className="errorBox">{error}</div> : null}
 
-                <div className="btnRow">
-                  <button className="btnGhost" type="button" onClick={goBack}>
+                <div className="btnRow" style={{ marginTop: 14 }}>
+                  <button className="btnSecondary" onClick={() => history.back()}>
                     Back
                   </button>
 
                   <button
-                    className="btnGhost"
-                    type="button"
+                    className="btnSecondary"
                     onClick={getTestMusd}
-                    disabled={!isConnected || !supported || stage === "faucet" || stage === "mint" || stage === "approve"}
+                    disabled={stage !== "idle" || !isConnected}
                   >
                     {stage === "faucet" ? "Getting mUSD…" : `Get test ${symbol}`}
                   </button>
 
                   <button
-                    className="btnGhost"
-                    type="button"
+                    className="btnSecondary"
                     onClick={approveMusd}
-                    disabled={!isConnected || !supported || stage === "approve" || stage === "mint" || stage === "faucet"}
+                    disabled={stage !== "idle" || !isConnected}
                   >
                     {stage === "approve" ? "Approving…" : `Approve ${symbol}`}
                   </button>
 
                   <button
-                    className="btnPrimary"
-                    type="button"
+                    className="btn"
                     onClick={mintOnTestnet}
-                    disabled={!isConnected || !supported || stage === "mint" || !hasEnough || !hasAllowance}
+                    disabled={stage !== "idle" || !isConnected}
                   >
                     {stage === "mint" ? "Minting…" : "Mint on Testnet"}
                   </button>
                 </div>
 
                 {mintHash ? (
-                  <div className="muted note">
+                  <div className="muted" style={{ marginTop: 10 }}>
                     Mint tx:{" "}
-                    <a href={`https://amoy.polygonscan.com/tx/${mintHash}`} target="_blank" rel="noreferrer">
+                    <a
+                      href={`https://amoy.polygonscan.com/tx/${mintHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       {mintHash}
                     </a>
                   </div>
                 ) : null}
-              </div>
-
-              <div className="panel">
-                <h2 className="h2">Summary</h2>
 
                 <div className="summary">
-                  <div className="sRow">
-                    <div className="sKey">Check Type</div>
-                    <div className="sVal">Payment</div>
+                  <h3>Summary</h3>
+                  <div className="row">
+                    <div className="label">Check Type</div>
+                    <div className="value">Payment</div>
                   </div>
-                  <div className="sRow">
-                    <div className="sKey">Token</div>
-                    <div className="sVal">{symbol}</div>
+                  <div className="row">
+                    <div className="label">Token</div>
+                    <div className="value">{symbol}</div>
                   </div>
-                  <div className="sRow">
-                    <div className="sKey">Network</div>
-                    <div className="sVal">Polygon Amoy (80002)</div>
+                  <div className="row">
+                    <div className="label">Network</div>
+                    <div className="value">Polygon Amoy (80002)</div>
                   </div>
-                  <div className="sRow">
-                    <div className="sKey">Serial</div>
-                    <div className="sVal mono">{draft.serial}</div>
+                  <div className="row">
+                    <div className="label">Serial</div>
+                    <div className="value">{draft.serial}</div>
+                  </div>
+
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    After mint, you will be redirected to:
+                    <br />
+                    {`https://explorer.checks.xyz/testnet/${draft.serial}`}
                   </div>
                 </div>
+              </>
+            )}
+          </div>
+        </div>
 
-                <div className="muted note">
-                  After mint, you will be redirected to:
-                  <div className="mono">{`https://explorer.checks.xyz/testnet/${draft.serial}`}</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <footer className="footer">
-            <div className="muted">Powered by Checks</div>
-            <div className="muted">Tip: This is an early preview step. Full mint wiring is next.</div>
-          </footer>
+        <div className="footer">
+          <div>Powered by Checks</div>
+          <div className="muted">
+            Tip: This is an early preview step. Full mint wiring is next.
+          </div>
         </div>
       </div>
 
-      <style jsx>{styles}</style>
+      {/* Keep styling local + minimal. */}
+      <style jsx>{`
+        .container {
+          max-width: 980px;
+          margin: 0 auto;
+          padding: 32px 18px 50px;
+          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+            Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+          color: #0f172a;
+        }
+        .topbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+        .backLink {
+          text-decoration: none;
+          color: #2f77fb;
+          font-weight: 600;
+        }
+        .title {
+          font-size: 44px;
+          line-height: 1.05;
+          letter-spacing: -0.02em;
+          margin: 10px 0 16px;
+        }
+        .pillRow {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 22px;
+        }
+        .pill {
+          border: 1px solid #e2e8f0;
+          padding: 6px 10px;
+          border-radius: 999px;
+          font-size: 13px;
+          background: #fff;
+        }
+        .pillOk {
+          border-color: #bbf7d0;
+          background: #f0fdf4;
+        }
+        .pillWarn {
+          border-color: #fed7aa;
+          background: #fff7ed;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr 1.35fr;
+          gap: 18px;
+        }
+        @media (max-width: 860px) {
+          .grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        .card {
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 18px;
+          background: #fff;
+          box-shadow: 0 1px 10px rgba(15, 23, 42, 0.04);
+        }
+        h2 {
+          margin: 0 0 12px;
+          font-size: 20px;
+          letter-spacing: -0.01em;
+        }
+        h3 {
+          margin: 14px 0 8px;
+          font-size: 15px;
+          letter-spacing: -0.01em;
+        }
+        .subhead {
+          margin-top: 16px;
+        }
+        .row {
+          display: flex;
+          gap: 12px;
+          justify-content: space-between;
+          align-items: baseline;
+          padding: 6px 0;
+        }
+        .label {
+          font-size: 12px;
+          color: #64748b;
+          min-width: 110px;
+        }
+        .value {
+          font-size: 14px;
+          color: #0f172a;
+          word-break: break-all;
+          text-align: right;
+        }
+        .btnRow {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-top: 12px;
+        }
+        .btn,
+        .btnSecondary,
+        .btnLink {
+          appearance: none;
+          border: 1px solid #cbd5e1;
+          background: #0f172a;
+          color: #fff;
+          border-radius: 12px;
+          padding: 10px 12px;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .btn:disabled,
+        .btnSecondary:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+        .btnSecondary {
+          background: #fff;
+          color: #0f172a;
+        }
+        .btnLink {
+          background: #fff;
+          color: #0f172a;
+        }
+        .help {
+          margin-top: 10px;
+        }
+        .help a {
+          color: #2f77fb;
+          text-decoration: none;
+          font-weight: 600;
+          font-size: 13px;
+        }
+        .muted {
+          color: #64748b;
+          font-size: 13px;
+        }
+        .previewBox {
+          border: 1px dashed #e2e8f0;
+          background: #f8fafc;
+          border-radius: 14px;
+          padding: 14px;
+        }
+        .previewTitle {
+          font-weight: 800;
+          margin-bottom: 8px;
+        }
+        .errorBox {
+          margin-top: 12px;
+          border: 1px solid #fecaca;
+          background: #fef2f2;
+          color: #991b1b;
+          border-radius: 12px;
+          padding: 10px 12px;
+          font-size: 13px;
+          white-space: pre-wrap;
+        }
+        .summary {
+          margin-top: 16px;
+          border-top: 1px solid #e2e8f0;
+          padding-top: 14px;
+        }
+        .footer {
+          margin-top: 20px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+      `}</style>
     </>
   );
 }
-
-const styles = `
-.page{font-family:Kanit,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:#fff;color:#0f172a;min-height:100vh;}
-.container{max-width:1040px;margin:0 auto;padding:28px 18px 40px;}
-.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
-.brand{color:#4f46e5;text-decoration:none;font-weight:900;}
-.brand:hover{text-decoration:underline;}
-.netPill{border:1px solid #e5e7eb;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:800;color:#0f172a;}
-.h1{font-size:52px;line-height:1.02;margin:10px 0 10px;font-weight:900;letter-spacing:-0.02em;}
-.grid{display:grid;grid-template-columns:1.12fr 1fr;gap:22px;align-items:start;}
-.panel{border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#fff;margin-bottom:16px;}
-.h2{font-size:28px;margin:0 0 14px;font-weight:900;letter-spacing:-0.01em;}
-.label{font-size:14px;font-weight:900;margin-bottom:6px;color:#0f172a;}
-.muted{color:#64748b;font-size:13px;}
-.note{margin-top:14px;line-height:1.35;}
-.row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-top:10px;}
-.btnRow{margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
-.btnPrimary{border:1px solid #4f46e5;background:#4f46e5;color:#fff;border-radius:999px;padding:10px 14px;font-size:14px;font-weight:900;cursor:pointer;}
-.btnPrimary:disabled{opacity:.45;cursor:not-allowed;}
-.btnGhost, .btnGhostLink{border:1px solid #e5e7eb;background:#fff;color:#0f172a;border-radius:999px;padding:10px 14px;font-size:14px;font-weight:900;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;}
-.btnGhost:hover,.btnGhostLink:hover{background:#f8fafc;}
-.warn{border:1px solid rgba(220,38,38,.25);background:rgba(220,38,38,.06);padding:10px 12px;border-radius:12px;font-size:13px;font-weight:900;margin-top:12px;}
-.good{color:#16a34a;font-weight:900;}
-.bad{color:#dc2626;font-weight:900;}
-.previewCard{border:1px dashed #e5e7eb;border-radius:16px;padding:14px;background:#fafafa;}
-.pcTop{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
-.pcBadge{border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:900;background:#fff;}
-.pcAmt{font-size:14px;font-weight:900;}
-.pcTitle{font-size:18px;font-weight:900;margin:6px 0 12px;}
-.pcLine{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px;}
-.pcKey{color:#64748b;font-size:12px;font-weight:900;}
-.pcVal{font-size:12px;font-weight:800;color:#0f172a;text-align:right;}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
-.pcMemo{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb;}
-.pcFooter{margin-top:12px;}
-.summary{display:flex;flex-direction:column;gap:10px;}
-.sRow{display:flex;justify-content:space-between;gap:12px;}
-.sKey{color:#64748b;font-size:13px;font-weight:900;}
-.sVal{color:#0f172a;font-size:13px;font-weight:900;text-align:right;}
-.footer{margin-top:34px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;}
-@media (max-width:1040px){.grid{grid-template-columns:1fr;gap:18px;}.h1{font-size:44px;}}
-`;
