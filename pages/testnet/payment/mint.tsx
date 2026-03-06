@@ -12,12 +12,23 @@ type Draft = {
   recipient: string;
   claimableAtMode: "instant" | "postdated";
   claimableAt: string; // yyyy-mm-ddThh:mm (datetime-local)
-  serial?: string; // generated later on preview
+  serial?: string; // generated later (currently on preview)
 };
 
 const DRAFT_KEY = "checks_testnet_draft_v1";
 
-const isHexAddress = (v: string) => /^0x[a-fA-F0-9]{40}$/.test(v.trim());
+function isHexAddress(v: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(v.trim());
+}
+
+function byteLen(s: string) {
+  // Safe in browser + Node 18/20
+  try {
+    return new TextEncoder().encode(s).length;
+  } catch {
+    return s.length;
+  }
+}
 
 export default function PaymentMint() {
   const { address, isConnected } = useAccount();
@@ -58,7 +69,7 @@ export default function PaymentMint() {
     }
   }, []);
 
-  // If "mint to my address" is enabled, keep recipient synced
+  // If mint-to-self is enabled, keep recipient synced with wallet
   useEffect(() => {
     if (!mintToSelf) return;
     if (!address) return;
@@ -72,39 +83,41 @@ export default function PaymentMint() {
 
   const validationError = useMemo((): string | null => {
     const title = (draft.title || "").trim();
+    const memo = draft.memo || "";
     const amt = (draft.amount || "").trim();
     const recipient = (draft.recipient || "").trim();
 
     if (!title) return "Check name is required.";
-    // keep it simple: must be a number > 0
     const n = Number(amt);
     if (!amt || Number.isNaN(n) || n <= 0) return "Enter a valid collateral amount.";
     if (!recipient) return "Recipient address is required.";
     if (!isHexAddress(recipient)) return "Recipient address must be a valid 0x address.";
+
     if (draft.claimableAtMode === "postdated" && !draft.claimableAt) {
       return "Select a start date for post-dated checks.";
     }
 
-    // byte limits (mirror preview validation, but keep message simple)
-    const memoBytes = new TextEncoder().encode(draft.memo || "");
-    if (memoBytes.length > 160) return "Memo is too long (max 160 bytes).";
-    const titleBytes = new TextEncoder().encode(title);
-    if (titleBytes.length > 32) return "Check name is too long (max 32 bytes).";
+    // Match Preview constraints (bytes)
+    if (byteLen(memo) > 160) return "Memo is too long (max 160 bytes).";
+    if (byteLen(title) > 32) return "Check name is too long (max 32 bytes).";
 
     return null;
   }, [draft]);
 
   const canContinue = useMemo(() => !validationError, [validationError]);
 
-  function saveAndGoPreview() {
-    setTouched(true);
-    if (validationError) return;
-
+  function persist(next: Draft) {
     try {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
     } catch {
       // ignore
     }
+  }
+
+  function saveAndGoPreview() {
+    setTouched(true);
+    if (validationError) return;
+    persist(draft);
     window.location.href = "/testnet/payment/preview";
   }
 
@@ -120,11 +133,7 @@ export default function PaymentMint() {
     };
     setDraft(next);
     setTouched(false);
-    try {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
-    }
+    persist(next);
   }
 
   return (
@@ -139,6 +148,7 @@ export default function PaymentMint() {
             <Link className="brand" href="/testnet">
               ← Portfolio
             </Link>
+
             <div className="netPill">
               Testnet • Polygon Amoy (80002)
               {isConnected ? (
@@ -147,7 +157,9 @@ export default function PaymentMint() {
                 ) : (
                   <span className="bad"> • Wrong network ❌</span>
                 )
-              ) : null}
+              ) : (
+                <span className="mutedInline"> • Wallet not connected</span>
+              )}
             </div>
           </div>
 
@@ -173,9 +185,10 @@ export default function PaymentMint() {
                   className="input"
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="Demo Payment"
+                  placeholder="Service payment"
                   onBlur={() => setTouched(true)}
                 />
+                <div className="hint">Max 32 bytes.</div>
               </label>
 
               <label className="field">
@@ -192,19 +205,12 @@ export default function PaymentMint() {
 
               <div className="row2">
                 <label className="field">
-                  <div className="label">Network</div>
-                  <div className="pillStatic">Polygon Amoy (80002)</div>
-                </label>
-
-                <label className="field">
                   <div className="label">Token collateral</div>
                   <div className="pillStatic">Mock USD (mUSD)</div>
                 </label>
-              </div>
 
-              <div className="row2">
                 <label className="field">
-                  <div className="label">Collateral Amount</div>
+                  <div className="label">Amount</div>
                   <input
                     className="input"
                     value={draft.amount}
@@ -214,40 +220,10 @@ export default function PaymentMint() {
                     onBlur={() => setTouched(true)}
                   />
                 </label>
-
-                <label className="field">
-                  <div className="label">Payment Conditions</div>
-                  <div className="radioRow">
-                    <button
-                      type="button"
-                      className={`radio ${draft.claimableAtMode === "instant" ? "active" : ""}`}
-                      onClick={() => setDraft({ ...draft, claimableAtMode: "instant", claimableAt: "" })}
-                    >
-                      Instant Claim
-                    </button>
-                    <button
-                      type="button"
-                      className={`radio ${draft.claimableAtMode === "postdated" ? "active" : ""}`}
-                      onClick={() => setDraft({ ...draft, claimableAtMode: "postdated" })}
-                    >
-                      Post-dated
-                    </button>
-                  </div>
-
-                  {draft.claimableAtMode === "postdated" ? (
-                    <input
-                      className="input"
-                      type="datetime-local"
-                      value={draft.claimableAt}
-                      onChange={(e) => setDraft({ ...draft, claimableAt: e.target.value })}
-                      onBlur={() => setTouched(true)}
-                    />
-                  ) : null}
-                </label>
               </div>
 
               <label className="field">
-                <div className="label">Recipient Address</div>
+                <div className="label">Recipient</div>
 
                 <div className="rowInline">
                   <input
@@ -257,9 +233,7 @@ export default function PaymentMint() {
                     onChange={(e) => {
                       const v = e.target.checked;
                       setMintToSelf(v);
-                      if (v && address) {
-                        setDraft((d) => ({ ...d, recipient: address }));
-                      }
+                      if (v && address) setDraft((d) => ({ ...d, recipient: address }));
                     }}
                   />
                   <span className="hintStrong">Mint to my address</span>
@@ -273,10 +247,37 @@ export default function PaymentMint() {
                   placeholder="0x..."
                   onBlur={() => setTouched(true)}
                 />
-                <div className="hint">
-                  Wallet connect + network switching happens on Preview for now. This page just builds the draft.
-                </div>
               </label>
+
+              <div className="field">
+                <div className="label">Claim timing</div>
+                <div className="radioRow">
+                  <button
+                    type="button"
+                    className={`radio ${draft.claimableAtMode === "instant" ? "active" : ""}`}
+                    onClick={() => setDraft({ ...draft, claimableAtMode: "instant", claimableAt: "" })}
+                  >
+                    Instant Claim
+                  </button>
+                  <button
+                    type="button"
+                    className={`radio ${draft.claimableAtMode === "postdated" ? "active" : ""}`}
+                    onClick={() => setDraft({ ...draft, claimableAtMode: "postdated" })}
+                  >
+                    Post-dated
+                  </button>
+                </div>
+
+                {draft.claimableAtMode === "postdated" ? (
+                  <input
+                    className="input"
+                    type="datetime-local"
+                    value={draft.claimableAt}
+                    onChange={(e) => setDraft({ ...draft, claimableAt: e.target.value })}
+                    onBlur={() => setTouched(true)}
+                  />
+                ) : null}
+              </div>
 
               {touched && validationError ? <div className="error">{validationError}</div> : null}
 
@@ -297,7 +298,7 @@ export default function PaymentMint() {
               </div>
 
               <div className="panelNote muted">
-                Network is locked to Polygon Amoy (80002). Collateral is Mock USD (mUSD).
+                Locked for MVP: Polygon Amoy (80002) + Mock USD (mUSD).
               </div>
             </div>
 
@@ -338,18 +339,14 @@ export default function PaymentMint() {
                   <div className="pcVal">{draft.memo || "—"}</div>
                 </div>
 
-                <div className="pcFooter muted">Serial + QR will be generated after minting (Preview step).</div>
-              </div>
-
-              <div className="panelNote muted">
-                Next page shows final confirmation + wallet actions (Get mUSD → Approve → Mint).
+                <div className="pcFooter muted">Serial + QR are generated after minting (Preview step).</div>
               </div>
             </div>
           </div>
 
           <footer className="footer">
             <div className="muted">Powered by Checks</div>
-            <div className="muted">Tip: Mobile view optimized. We recommend using PC.</div>
+            <div className="muted">Tip: This is an early mint flow. Full MVP wiring in progress.</div>
           </footer>
         </div>
       </div>
@@ -368,6 +365,7 @@ const styles = `
 .netPill{border:1px solid #e5e7eb;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:700;color:#0f172a;}
 .ok{color:#16a34a;font-weight:900;}
 .bad{color:#dc2626;font-weight:900;}
+.mutedInline{color:#64748b;font-weight:800;}
 .h1{font-size:52px;line-height:1.02;margin:10px 0 10px;font-weight:900;letter-spacing:-0.02em;}
 .tabs{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 18px;}
 .tab{border:1px solid #e5e7eb;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:800;color:#0f172a;background:#fff;text-decoration:none;}
@@ -390,7 +388,7 @@ const styles = `
 .radioRow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
 .radio{border:1px solid #e5e7eb;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:900;background:#fff;cursor:pointer;}
 .radio.active{border-color:#4f46e5;color:#4f46e5;}
-.error{border:1px solid rgba(220,38,38,.25);background:rgba(220,38,38,.06);color:#991b1b;border-radius:12px;padding:10px 12px;font-size:13px;font-weight:800;margin-top:6px;}
+.error{border:1px solid rgba(220,38,38,.25);background:rgba(220,38,38,.06);color:#991b1b;border-radius:12px;padding:10px 12px;font-size:13px;font-weight:900;margin-top:6px;}
 .btnRow{margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
 .btnPrimary{border:1px solid #4f46e5;background:#4f46e5;color:#fff;border-radius:999px;padding:10px 14px;font-size:14px;font-weight:900;cursor:pointer;}
 .btnPrimary:hover{opacity:.92;}
@@ -404,7 +402,7 @@ const styles = `
 .pcTitle{font-size:18px;font-weight:900;margin:6px 0 12px;}
 .pcLine{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px;}
 .pcKey{color:#64748b;font-size:12px;font-weight:900;}
-.pcVal{font-size:12px;font-weight:800;color:#0f172a;}
+.pcVal{font-size:12px;font-weight:900;color:#0f172a;}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
 .pcMemo{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb;}
 .pcFooter{margin-top:12px;}
