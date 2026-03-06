@@ -1,8 +1,14 @@
 export const AMOY_CHAIN_ID = 80002;
 
-// From checks/docs/deployments/amoy-pchk-erc6551.md
-export const PCHK_ADDRESS = "0x4dC6db5f06DAF4716b749EAb8d8efa27BcEE1218" as const;
-export const MUSD_ADDRESS = "0xa01C7368672b61AdE32FAEf6aeD5aeC1845dedb5" as const;
+// From checks/docs/deployments/amoy-payment-checks.md (canonical deployment)
+export const PAYMENT_CHECKS_ADDRESS =
+  "0x9ED92dd2626E372DB3FD71Fe300f76d90aF2d589" as const;
+
+// Back-compat alias (kept to avoid touching many imports yet)
+export const PCHK_ADDRESS = PAYMENT_CHECKS_ADDRESS;
+
+export const MUSD_ADDRESS =
+  "0x0D085A1EBb74f050cE3A8ed18E3f998F04A23268" as const;
 
 // BigInt max uint256 for approvals
 export const MAX_UINT256 =
