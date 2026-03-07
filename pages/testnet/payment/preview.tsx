@@ -298,24 +298,32 @@ export default function PaymentPreview() {
   }
 
   async function readBalance(owner: Address): Promise<bigint> {
-    if (!publicClient) return 0n;
-    return (await publicClient.readContract({
-      address: MUSD,
-      abi: MUSD_ABI_T,
-      functionName: "balanceOf",
-      args: [owner],
-    })) as bigint;
-  }
+  if (!publicClient) return 0n;
 
-  async function readAllowance(owner: Address): Promise<bigint> {
-    if (!publicClient) return 0n;
-    return (await publicClient.readContract({
-      address: MUSD,
-      abi: MUSD_ABI_T,
-      functionName: "allowance",
-      args: [owner, PCHK],
-    })) as bigint;
-  }
+  // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
+  const pc = publicClient as any;
+
+  return (await pc.readContract({
+    address: MUSD,
+    abi: MUSD_ABI_T,
+    functionName: "balanceOf",
+    args: [owner],
+  })) as bigint;
+}
+
+async function readAllowance(owner: Address): Promise<bigint> {
+  if (!publicClient) return 0n;
+
+  // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
+  const pc = publicClient as any;
+
+  return (await pc.readContract({
+    address: MUSD,
+    abi: MUSD_ABI_T,
+    functionName: "allowance",
+    args: [owner, PCHK],
+  })) as bigint;
+}
 
   async function faucetIfNeeded(owner: Address): Promise<boolean> {
     const bal = await readBalance(owner);
