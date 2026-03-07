@@ -331,7 +331,7 @@ export default function TestnetSerialPage(props: PageProps) {
               <div className="noteCard">
                 <div className="noteTitle">Note</div>
                 <div className="noteText">
-                  This is a curated testnet demo. For newly minted checks, this route falls back to on-chain lookup.
+                  Note: This page is under active development. Temporary formatting issues or QR placement inconsistencies may appear as we refine the layout.
                 </div>
               </div>
             </div>
