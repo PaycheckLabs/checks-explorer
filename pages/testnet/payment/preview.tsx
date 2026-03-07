@@ -33,21 +33,28 @@ type Draft = {
   serial?: string; // generated only at mint time
 };
 
-type Stage =
-  | "idle"
-  | "connecting"
-  | "switching"
-  | "faucet"
-  | "approve"
-  | "mint"
-  | "success"
-  | "error";
+type Stage = "idle" | "connecting" | "switching" | "faucet" | "approve" | "mint" | "success" | "error";
+
+type TxUiKind = "none" | "wallet" | "pending" | "success" | "failed";
+type TxUiState = {
+  kind: TxUiKind;
+  title?: string;
+  sub?: string;
+  hash?: `0x${string}`;
+  serial?: string;
+};
 
 const DRAFT_KEY = "checks_testnet_draft_v1";
 
-// 0.05% = 5 bps (estimate only for now)
+// 0.05% = 5 bps (display estimate only for now)
 const PLATFORM_FEE_BPS = 5n;
 const BPS_DENOM = 10_000n;
+
+const AMOY_SCAN_BASE = "https://amoy.polygonscan.com";
+
+function scanTx(hash: string) {
+  return `${AMOY_SCAN_BASE}/tx/${hash}`;
+}
 
 function shortAddr(a?: string) {
   if (!a) return "—";
@@ -79,24 +86,19 @@ export default function PaymentPreview() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  // Tx UI overlay state (matches your screenshots)
+  const [txUi, setTxUi] = useState<TxUiState>({ kind: "none" });
+
   const [mintHash, setMintHash] = useState<`0x${string}` | null>(null);
   const [sentDateStr, setSentDateStr] = useState<string>("—");
 
   // wallet
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-
-  // useConnect: we’ll use connectAsync when available for a clean one-button flow
-  const connectHook = useConnect() as unknown as {
-    connect: (args: any) => void;
-    connectAsync?: (args: any) => Promise<any>;
-    connectors: any[];
-    isPending: boolean;
-  };
+  const { connect, connectors, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
-
-  const { connect, connectAsync, connectors, isPending: isConnecting } = connectHook;
 
   // NOTE: Cast to keep TS strict + wagmi v3 happy in Vercel builds.
   const { writeContractAsync } = useWriteContract() as unknown as {
@@ -108,7 +110,7 @@ export default function PaymentPreview() {
 
   // Narrow constants to wagmi/viem-friendly types
   const MUSD = MUSD_ADDRESS as Address;
-  const PCHK = PCHK_ADDRESS as Address; // canonical PaymentChecks address via alias
+  const PCHK = PCHK_ADDRESS as Address; // canonical PaymentChecks address
   const MUSD_ABI_T = MUSD_ABI as unknown as Abi;
   const PCHK_ABI_T = PCHK_ABI as unknown as Abi;
 
@@ -126,7 +128,7 @@ export default function PaymentPreview() {
   const decimals = Number(decimalsRes.data ?? 6);
   const symbol = (symbolRes.data as string | undefined) ?? "mUSD";
 
-  // balances + allowance (hook-based UI display; mint pipeline uses fresh reads)
+  // balances + allowance (hook-based UI display)
   const musdBalRes = useReadContract({
     address: MUSD,
     abi: MUSD_ABI_T,
@@ -245,40 +247,40 @@ export default function PaymentPreview() {
     return serial;
   }
 
-  function getConnector() {
-    return connectors?.find((c) => c.id === "injected") ?? connectors?.[0];
-  }
+  const connectConnector = connectors?.find((c) => c.id === "injected") ?? connectors?.[0];
 
   async function ensureConnected(): Promise<Address | null> {
     if (isConnected && address) return address as Address;
 
-    const connector = getConnector();
-    if (!connector) {
+    if (!connectConnector) {
       setError("No wallet connector found. Please install MetaMask or use an injected wallet.");
       setStage("error");
+      setTxUi({ kind: "failed", title: "Connection Failed", sub: "No wallet connector found." });
       return null;
     }
 
     setStage("connecting");
+    setTxUi({ kind: "wallet", title: "Please wait…", sub: "Waiting for wallet approval." });
+
     try {
-      if (connectAsync) {
-        const res = await connectAsync({ connector });
-        const acct = (res as any)?.accounts?.[0] ?? (res as any)?.account;
-        if (acct) return acct as Address;
-      } else {
-        // Fallback (less deterministic): trigger connect, then rely on wagmi state update
-        connect({ connector });
-        // give wagmi a tick
-        await new Promise((r) => setTimeout(r, 600));
-        if (address) return address as Address;
+      connect({ connector: connectConnector });
+      // give wagmi a tick
+      await new Promise((r) => setTimeout(r, 900));
+
+      if (!address) {
+        setError("Wallet connected, but address was not returned. Please try again.");
+        setStage("error");
+        setTxUi({ kind: "failed", title: "Connection Failed", sub: "Address not returned by wallet." });
+        return null;
       }
 
-      setError("Wallet connected, but address was not returned. Please try again.");
-      setStage("error");
-      return null;
+      setTxUi({ kind: "none" });
+      return address as Address;
     } catch (e: any) {
-      setError(e?.shortMessage || e?.message || "Wallet connection failed.");
+      const msg = e?.shortMessage || e?.message || "Wallet connection failed.";
+      setError(msg);
       setStage("error");
+      setTxUi({ kind: "failed", title: "Connection Failed", sub: msg });
       return null;
     }
   }
@@ -287,43 +289,88 @@ export default function PaymentPreview() {
     if (chainId === AMOY_CHAIN_ID) return true;
 
     setStage("switching");
+    setTxUi({ kind: "wallet", title: "Please wait…", sub: "Approve the network switch to Polygon Amoy." });
+
     try {
       await switchChainAsync({ chainId: AMOY_CHAIN_ID });
+      setTxUi({ kind: "none" });
       return true;
     } catch (e: any) {
-      setError(e?.shortMessage || e?.message || "Failed to switch to Polygon Amoy.");
+      const msg = e?.shortMessage || e?.message || "Failed to switch to Polygon Amoy.";
+      setError(msg);
       setStage("error");
+      setTxUi({ kind: "failed", title: "Network Switch Failed", sub: msg });
       return false;
     }
   }
 
   async function readBalance(owner: Address): Promise<bigint> {
-  if (!publicClient) return 0n;
+    if (!publicClient) return 0n;
 
-  // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
-  const pc = publicClient as any;
+    // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
+    const pc = publicClient as any;
 
-  return (await pc.readContract({
-    address: MUSD,
-    abi: MUSD_ABI_T,
-    functionName: "balanceOf",
-    args: [owner],
-  })) as bigint;
-}
+    return (await pc.readContract({
+      address: MUSD,
+      abi: MUSD_ABI_T,
+      functionName: "balanceOf",
+      args: [owner],
+    })) as bigint;
+  }
 
-async function readAllowance(owner: Address): Promise<bigint> {
-  if (!publicClient) return 0n;
+  async function readAllowance(owner: Address): Promise<bigint> {
+    if (!publicClient) return 0n;
 
-  // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
-  const pc = publicClient as any;
+    // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
+    const pc = publicClient as any;
 
-  return (await pc.readContract({
-    address: MUSD,
-    abi: MUSD_ABI_T,
-    functionName: "allowance",
-    args: [owner, PCHK],
-  })) as bigint;
-}
+    return (await pc.readContract({
+      address: MUSD,
+      abi: MUSD_ABI_T,
+      functionName: "allowance",
+      args: [owner, PCHK],
+    })) as bigint;
+  }
+
+  async function runTx(opts: {
+    walletSub: string;
+    pendingTitle: string;
+    pendingSub: string;
+    call: () => Promise<`0x${string}`>;
+    onSuccess?: (hash: `0x${string}`) => void;
+    onFailTitle?: string;
+  }): Promise<`0x${string}`> {
+    setTxUi({ kind: "wallet", title: "Please wait…", sub: opts.walletSub });
+
+    let hash: `0x${string}` | undefined;
+    try {
+      hash = await opts.call();
+      setMintHash(hash);
+
+      setTxUi({
+        kind: "pending",
+        title: opts.pendingTitle,
+        sub: opts.pendingSub,
+        hash,
+      });
+
+      await publicClient!.waitForTransactionReceipt({ hash });
+
+      opts.onSuccess?.(hash);
+
+      return hash;
+    } catch (e: any) {
+      const msg = e?.shortMessage || e?.message || "Transaction failed.";
+      setError(msg);
+      setTxUi({
+        kind: "failed",
+        title: opts.onFailTitle || "Transaction Failed",
+        sub: msg,
+        hash,
+      });
+      throw e;
+    }
+  }
 
   async function faucetIfNeeded(owner: Address): Promise<boolean> {
     const bal = await readBalance(owner);
@@ -334,22 +381,31 @@ async function readAllowance(owner: Address): Promise<bigint> {
 
     setStage("faucet");
     try {
-      const hash = await writeContractAsync({
-        address: MUSD,
-        abi: MUSD_ABI_T,
-        functionName: "faucet",
-        args: [desired],
+      await runTx({
+        walletSub: `Approve the test ${symbol} faucet request in your wallet.`,
+        pendingTitle: "Transaction in Process",
+        pendingSub: "Please wait, it will take less than a minute.",
+        call: () =>
+          writeContractAsync({
+            address: MUSD,
+            abi: MUSD_ABI_T,
+            functionName: "faucet",
+            args: [desired],
+          }),
+        onFailTitle: "Faucet Failed",
       });
-      await publicClient!.waitForTransactionReceipt({ hash });
+
       const bal2 = await readBalance(owner);
       if (bal2 < amountUnits) {
         setError(`Faucet completed, but balance is still low. Please try again.`);
         setStage("error");
+        setTxUi({ kind: "failed", title: "Faucet Failed", sub: "Balance is still low after faucet." });
         return false;
       }
+
+      setTxUi({ kind: "none" });
       return true;
-    } catch (e: any) {
-      setError(e?.shortMessage || e?.message || "mUSD faucet failed.");
+    } catch {
       setStage("error");
       return false;
     }
@@ -361,22 +417,31 @@ async function readAllowance(owner: Address): Promise<bigint> {
 
     setStage("approve");
     try {
-      const hash = await writeContractAsync({
-        address: MUSD,
-        abi: MUSD_ABI_T,
-        functionName: "approve",
-        args: [PCHK, MAX_UINT256],
+      await runTx({
+        walletSub: `Approve ${symbol} spending for minting this check.`,
+        pendingTitle: "Transaction in Process",
+        pendingSub: "Please wait, it will take less than a minute.",
+        call: () =>
+          writeContractAsync({
+            address: MUSD,
+            abi: MUSD_ABI_T,
+            functionName: "approve",
+            args: [PCHK, MAX_UINT256],
+          }),
+        onFailTitle: "Approval Failed",
       });
-      await publicClient!.waitForTransactionReceipt({ hash });
+
       const allow2 = await readAllowance(owner);
       if (allow2 < amountUnits) {
         setError(`Approval completed, but allowance is still low. Please try again.`);
         setStage("error");
+        setTxUi({ kind: "failed", title: "Approval Failed", sub: "Allowance still low after approval." });
         return false;
       }
+
+      setTxUi({ kind: "none" });
       return true;
-    } catch (e: any) {
-      setError(e?.shortMessage || e?.message || "Approve failed.");
+    } catch {
       setStage("error");
       return false;
     }
@@ -390,6 +455,7 @@ async function readAllowance(owner: Address): Promise<bigint> {
     if (v) {
       setError(v);
       setStage("error");
+      setTxUi({ kind: "failed", title: "Mint Failed", sub: v });
       return;
     }
 
@@ -405,6 +471,7 @@ async function readAllowance(owner: Address): Promise<bigint> {
     if (!publicClient) {
       setError("Public client not ready.");
       setStage("error");
+      setTxUi({ kind: "failed", title: "Mint Failed", sub: "Public client not ready." });
       return;
     }
 
@@ -419,13 +486,16 @@ async function readAllowance(owner: Address): Promise<bigint> {
     try {
       serial = ensureSerial();
     } catch (e: any) {
-      setError(e?.message || "Failed to generate serial.");
+      const msg = e?.message || "Failed to generate serial.";
+      setError(msg);
       setStage("error");
+      setTxUi({ kind: "failed", title: "Mint Failed", sub: msg });
       return;
     }
 
     // 7) Mint
     setStage("mint");
+
     try {
       const serialB32 = bytes32FromString(serial);
       const titleB32 = bytes32FromString(draft!.title.trim());
@@ -434,35 +504,38 @@ async function readAllowance(owner: Address): Promise<bigint> {
           ? 0
           : Math.floor(new Date(draft!.claimableAt).getTime() / 1000);
 
-      const hash = await writeContractAsync({
-        address: PCHK,
-        abi: PCHK_ABI_T,
-        functionName: "mintPaymentCheck",
-        args: [
-          draft!.recipient.trim() as Address,
-          amountUnits,
-          BigInt(claimableAt),
-          serialB32,
-          titleB32,
-          draft!.memo || "",
-        ],
+      const hash = await runTx({
+        walletSub: "Confirm the mint transaction in your wallet.",
+        pendingTitle: "Transaction in Process",
+        pendingSub: "Please wait, it will take less than a minute.",
+        call: () =>
+          writeContractAsync({
+            address: PCHK,
+            abi: PCHK_ABI_T,
+            functionName: "mintPaymentCheck",
+            args: [
+              draft!.recipient.trim() as Address,
+              amountUnits,
+              BigInt(claimableAt),
+              serialB32,
+              titleB32,
+              draft!.memo || "",
+            ],
+          }),
+        onFailTitle: "Mint Failed",
       });
 
-      setMintHash(hash);
-      await publicClient.waitForTransactionReceipt({ hash });
-
       setStage("success");
-
-      // Route to local success screen first (better UX + fallback)
-      try {
-        const qs = new URLSearchParams({ serial, tx: hash }).toString();
-        window.location.href = `/testnet/payment/success?${qs}`;
-      } catch {
-        window.location.href = `/testnet/${serial}`;
-      }
-    } catch (e: any) {
+      setTxUi({
+        kind: "success",
+        title: "Check is Minted Successfully",
+        sub: "Your check has been minted on the blockchain.",
+        hash,
+        serial,
+      });
+    } catch {
       setStage("error");
-      setError(e?.shortMessage || e?.message || "Mint failed.");
+      // txUi already set by runTx
     }
   }
 
@@ -514,43 +587,23 @@ async function readAllowance(owner: Address): Promise<bigint> {
     stage === "approve" ||
     stage === "mint";
 
-  const progressTitle = useMemo(() => {
-    switch (stage) {
-      case "connecting":
-        return "Connecting wallet…";
-      case "switching":
-        return "Switching network…";
-      case "faucet":
-        return `Getting test ${symbol}…`;
-      case "approve":
-        return `Waiting for ${symbol} approval…`;
-      case "mint":
-        return "Minting check…";
-      case "success":
-        return "Mint confirmed. Redirecting…";
-      default:
-        return "";
-    }
-  }, [stage, symbol]);
+  function closeTxUiIfAllowed() {
+    // Don’t allow closing while tx pending
+    if (txUi.kind === "pending") return;
+    if (txUi.kind === "wallet") return;
+    setTxUi({ kind: "none" });
+  }
 
-  const progressSub = useMemo(() => {
-    switch (stage) {
-      case "connecting":
-        return "Approve the connection in your wallet.";
-      case "switching":
-        return "Approve the network switch to Polygon Amoy (80002).";
-      case "faucet":
-        return "Requesting test collateral from MockUSD faucet.";
-      case "approve":
-        return "Approve token spending so the check can be funded.";
-      case "mint":
-        return "Confirm the mint transaction in your wallet.";
-      case "success":
-        return "Taking you to the serial page.";
-      default:
-        return "";
-    }
-  }, [stage]);
+  function viewCheck() {
+    const serial = txUi.serial;
+    if (!serial) return;
+    window.location.href = `/testnet/${serial}`;
+  }
+
+  function viewTx() {
+    if (!txUi.hash) return;
+    window.open(scanTx(txUi.hash), "_blank", "noopener,noreferrer");
+  }
 
   return (
     <>
@@ -644,7 +697,7 @@ async function readAllowance(owner: Address): Promise<bigint> {
 
               {error ? <div className="error">{error}</div> : null}
 
-              {/* Utility controls (debug helpers) */}
+              {/* Utility controls (keep for now; later we fold into fully guided UI) */}
               <div className="tools">
                 <div className="toolsTitle">Wallet & Testnet Tools</div>
 
@@ -672,8 +725,12 @@ async function readAllowance(owner: Address): Promise<bigint> {
 
                 <div className="btnRow">
                   {!isConnected ? (
-                    <button className="btnGhost" onClick={() => connect({ connector: getConnector() })} disabled={busy}>
-                      Connect Wallet
+                    <button
+                      className="btnGhost"
+                      onClick={() => connectConnector && connect({ connector: connectConnector })}
+                      disabled={!connectConnector || isConnecting || busy}
+                    >
+                      {isConnecting ? "Connecting…" : "Connect Wallet"}
                     </button>
                   ) : (
                     <button className="btnGhost" onClick={() => disconnect()} disabled={busy}>
@@ -700,7 +757,7 @@ async function readAllowance(owner: Address): Promise<bigint> {
                   </button>
                 </div>
 
-                {mintHash ? <div className="hash mono">Mint tx: {mintHash}</div> : null}
+                {mintHash ? <div className="hash mono">Last tx: {mintHash}</div> : null}
               </div>
             </div>
           </div>
@@ -752,8 +809,8 @@ async function readAllowance(owner: Address): Promise<bigint> {
               ) : null}
 
               <div className="note">
-                Fee shown is an estimate only (0.05%). On-chain fee collection is a planned next brick. Serial + QR are
-                generated after mint.
+                Fee shown is an estimate only (0.05%). On-chain fee routing is a later brick. Serial + QR generate after
+                mint.
               </div>
 
               <div className="sideActions">
@@ -773,15 +830,78 @@ async function readAllowance(owner: Address): Promise<bigint> {
           <div className="muted">Tip: QR + Serial appear after minting.</div>
         </footer>
 
-        {/* Progress overlay */}
-        {(busy || stage === "success") && (
-          <div className="overlay" role="dialog" aria-modal="true" aria-label="Transaction progress">
-            <div className="modal">
-              <div className="modalTitle">{progressTitle}</div>
-              <div className="modalSub">{progressSub}</div>
-              {mintHash ? <div className="modalHash mono">Tx: {mintHash}</div> : null}
-              <div className="modalNote">Do not close this tab while your wallet is processing.</div>
-            </div>
+        {/* Flow overlays (match screenshots) */}
+        {txUi.kind !== "none" && (
+          <div className="txOverlay" role="dialog" aria-modal="true" aria-label="Transaction status">
+            {/* wallet: spinner only */}
+            {txUi.kind === "wallet" && (
+              <div className="txSpinnerWrap">
+                <div className="spinner" />
+                <div className="spinnerText">{txUi.title || "Please wait…"}</div>
+              </div>
+            )}
+
+            {/* pending/success/failed: modal */}
+            {txUi.kind !== "wallet" && (
+              <div className="txModal">
+                <div className="txIconWrap">
+                  {txUi.kind === "pending" ? <div className="txIcon amber">⌛</div> : null}
+                  {txUi.kind === "success" ? <div className="txIcon green">✔</div> : null}
+                  {txUi.kind === "failed" ? <div className="txIcon red">✕</div> : null}
+                </div>
+
+                <div className="txTitle">{txUi.title}</div>
+                <div className="txSub">{txUi.sub}</div>
+
+                {txUi.hash ? (
+                  <div className="txHash mono">
+                    {txUi.hash}
+                  </div>
+                ) : null}
+
+                <div className="txButtons">
+                  {txUi.kind === "pending" ? (
+                    <button className="txBtnGhost" onClick={viewTx} disabled={!txUi.hash}>
+                      🌐 View TXN on Polygonscan
+                    </button>
+                  ) : null}
+
+                  {txUi.kind === "success" ? (
+                    <>
+                      <button className="txBtnPrimary" onClick={viewCheck} disabled={!txUi.serial}>
+                        📄 View Check
+                      </button>
+                      <button className="txBtnGhost" onClick={viewTx} disabled={!txUi.hash}>
+                        🌐 View TXN on Polygonscan
+                      </button>
+                    </>
+                  ) : null}
+
+                  {txUi.kind === "failed" ? (
+                    <>
+                      <button
+                        className="txBtnPrimary"
+                        onClick={() => {
+                          setTxUi({ kind: "none" });
+                          setStage("idle");
+                        }}
+                      >
+                        Try Again
+                      </button>
+                      <button className="txBtnGhost" onClick={viewTx} disabled={!txUi.hash}>
+                        🌐 View TXN on Polygonscan
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+
+                {txUi.kind === "failed" || txUi.kind === "success" ? (
+                  <button className="txClose" onClick={closeTxUiIfAllowed} type="button">
+                    Close
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1126,43 +1246,148 @@ async function readAllowance(owner: Address): Promise<bigint> {
           font-size: 13px;
         }
 
-        .overlay {
+        /* Tx Overlay */
+        .txOverlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.6);
+          background: rgba(0, 0, 0, 0.65);
+          backdrop-filter: blur(4px);
           display: grid;
           place-items: center;
           padding: 20px;
-          z-index: 50;
+          z-index: 80;
         }
-        .modal {
+
+        .txSpinnerWrap {
+          display: grid;
+          place-items: center;
+          gap: 14px;
+          color: #e5e7eb;
+        }
+
+        .spinner {
+          width: 30px;
+          height: 30px;
+          border-radius: 999px;
+          border: 3px solid rgba(255, 255, 255, 0.25);
+          border-top-color: rgba(255, 255, 255, 0.9);
+          animation: spin 0.9s linear infinite;
+        }
+
+        .spinnerText {
+          font-weight: 900;
+          color: rgba(255, 255, 255, 0.9);
+        }
+
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        .txModal {
           width: min(520px, 100%);
           border-radius: 16px;
           border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(15, 23, 42, 0.92);
+          background: rgba(17, 24, 39, 0.96);
           padding: 16px;
-          box-shadow: 0 22px 80px rgba(0, 0, 0, 0.6);
+          box-shadow: 0 22px 80px rgba(0, 0, 0, 0.65);
+          text-align: center;
         }
-        .modalTitle {
+
+        .txIconWrap {
+          display: grid;
+          place-items: center;
+          margin-bottom: 10px;
+        }
+
+        .txIcon {
+          width: 42px;
+          height: 42px;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          font-weight: 900;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .txIcon.amber {
+          background: rgba(245, 158, 11, 0.18);
+          color: rgba(245, 158, 11, 0.95);
+        }
+        .txIcon.green {
+          background: rgba(34, 197, 94, 0.18);
+          color: rgba(34, 197, 94, 0.95);
+        }
+        .txIcon.red {
+          background: rgba(239, 68, 68, 0.18);
+          color: rgba(239, 68, 68, 0.95);
+        }
+
+        .txTitle {
           font-weight: 900;
           font-size: 16px;
           margin-bottom: 6px;
         }
-        .modalSub {
-          color: #cbd5e1;
+
+        .txSub {
+          color: rgba(255, 255, 255, 0.78);
           font-weight: 800;
           font-size: 13px;
           line-height: 1.35;
         }
-        .modalHash {
+
+        .txHash {
           margin-top: 10px;
-          color: #9ca3af;
+          color: rgba(255, 255, 255, 0.55);
           font-size: 12px;
+          word-break: break-all;
         }
-        .modalNote {
+
+        .txButtons {
+          margin-top: 14px;
+          display: grid;
+          gap: 10px;
+        }
+
+        .txBtnPrimary {
+          background: linear-gradient(180deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.9));
+          border: 1px solid rgba(56, 189, 248, 0.55);
+          color: #001018;
+          font-weight: 900;
+          border-radius: 12px;
+          padding: 12px 14px;
+          cursor: pointer;
+        }
+        .txBtnPrimary:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .txBtnGhost {
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          color: #e5e7eb;
+          font-weight: 900;
+          border-radius: 12px;
+          padding: 12px 14px;
+          cursor: pointer;
+        }
+        .txBtnGhost:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .txClose {
           margin-top: 10px;
-          color: #9ca3af;
-          font-size: 12px;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.55);
+          font-weight: 900;
+          cursor: pointer;
+        }
+        .txClose:hover {
+          color: rgba(255, 255, 255, 0.85);
         }
 
         @media (max-width: 980px) {
