@@ -622,7 +622,6 @@ export default function PaymentPreview() {
 
           <TxFlowOverlay
             ui={txUi}
-            scanBase={AMOY_SCAN_BASE}
             onViewTx={viewTx}
             onViewCheck={viewCheck}
             onClose={closeTxUiIfAllowed}
