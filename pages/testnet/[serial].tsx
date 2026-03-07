@@ -41,369 +41,61 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const raw = String(ctx.params?.serial || "");
   const normalized = normalizeSerial(raw);
 
-  // Keep URL normalized (important for consistency)
+  // Keep URL normalized (important for QR + share)
   if (raw !== normalized) {
+    const origin = `${ctx.req.headers["x-forwarded-proto"] || "https"}://${ctx.req.headers.host}`;
     return {
-      redirect: { destination: `/testnet/${normalized}`, permanent: false },
+      redirect: {
+        destination: `${origin}/testnet/${normalized}`,
+        permanent: true,
+      },
     };
   }
 
-  if (!isValidSerialFormat(normalized)) return { notFound: true };
+  const record = (serials as any)[normalized] as SerialRecord | undefined;
 
-  const record = (serials as Record<string, SerialRecord>)[normalized] ?? null;
+  const origin = `${ctx.req.headers["x-forwarded-proto"] || "https"}://${ctx.req.headers.host}`;
 
-  // Build an origin for absolute OG URLs
-  const proto = (ctx.req.headers["x-forwarded-proto"] as string) || "https";
-  const host = ctx.req.headers.host || "explorer.checks.xyz";
-  const origin = `${proto}://${host}`;
-
-  return { props: { serial: normalized, record, origin } };
+  return {
+    props: {
+      serial: normalized,
+      record: record ?? null,
+      origin,
+    },
+  };
 };
 
-// ---------- helpers ----------
-
-function polygonscanTx(tx: string) {
-  return `https://amoy.polygonscan.com/tx/${tx}`;
-}
-
-function polygonscanAddress(addr: string) {
-  return `https://amoy.polygonscan.com/address/${addr}`;
-}
-
-function normalizeTxHash(input?: string | null): string | null {
-  if (!input) return null;
-  const t = String(input).trim();
-  if (!t) return null;
-
-  const with0x = t.startsWith("0x") ? t : `0x${t}`;
-  const lower = with0x.toLowerCase();
-
-  // standard tx hash length: 66 chars (0x + 64 hex)
-  if (lower.length !== 66) return null;
-  if (!/^0x[0-9a-f]{64}$/.test(lower)) return null;
-
-  return lower;
-}
-
-function formatUtc(tsSeconds: number) {
-  try {
-    const d = new Date(tsSeconds * 1000);
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    const hh = String(d.getUTCHours()).padStart(2, "0");
-    const mi = String(d.getUTCMinutes()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd} ${hh}:${mi} UTC`;
-  } catch {
-    return "";
-  }
-}
-
-function msToHuman(ms: number) {
-  if (ms <= 0) return "0m";
-
-  const totalSeconds = Math.floor(ms / 1000);
-  const mins = Math.floor(totalSeconds / 60);
-  const hrs = Math.floor(mins / 60);
-  const days = Math.floor(hrs / 24);
-
-  if (days > 0) return `${days}d ${hrs % 24}h`;
-  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-  return `${mins}m`;
-}
-
-function getCardCandidates(serial: string) {
-  return [`/checks/testnet/${serial}.png`, `/testnet/${serial}.png`, `/checks/${serial}.png`];
-}
-
-async function pickFirstLoadableImage(candidates: string[]): Promise<string | null> {
-  for (const src of candidates) {
-    const ok = await new Promise<boolean>((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(false);
-      img.src = src;
-    });
-    if (ok) return src;
-  }
-  return null;
-}
-
-// ---------- page ----------
-
-export default function SerialPage({ serial, record, origin }: PageProps) {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [cardSrc, setCardSrc] = useState<string | null>(null);
-  const [cardFailed, setCardFailed] = useState(false);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  const candidates = useMemo(() => getCardCandidates(serial), [serial]);
-
-  useEffect(() => {
-    let alive = true;
-    setCardFailed(false);
-    setCardSrc(null);
-
-    pickFirstLoadableImage(candidates).then((picked) => {
-      if (!alive) return;
-      if (picked) setCardSrc(picked);
-      else setCardFailed(true);
-    });
-
-    return () => {
-      alive = false;
-    };
-  }, [candidates]);
-
-  useEffect(() => {
-    const t = setInterval(() => setNowMs(Date.now()), 15_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const title = `${serial} — Checks Explorer`;
-  const ogImageUrl = `${origin}${cardSrc || candidates[0]}`;
-
-  const normalizedMint = normalizeTxHash(record?.mintTx);
-  const normalizedTransfer = normalizeTxHash(record?.transferTx);
-  const normalizedRedeem = normalizeTxHash(record?.redeemTx);
-  const normalizedVoid = normalizeTxHash(record?.voidTx);
-
-  const isVoided = Boolean(normalizedVoid);
-  const isRedeemed = Boolean(normalizedRedeem);
-
-  const claimableAt = record?.claimableAt ?? null;
-  const claimableAtMs = claimableAt ? claimableAt * 1000 : null;
-  const countdown = claimableAtMs != null ? msToHuman(claimableAtMs - nowMs) : null;
-
-  const claimStatusText = useMemo(() => {
-    if (!record) return null;
-    if (isVoided) return "This check was voided before it became claimable.";
-    if (claimableAtMs == null) return null;
-    if (nowMs >= claimableAtMs) return "Claimable now.";
-    return `Claimable in ${countdown}`;
-  }, [record, isVoided, claimableAtMs, nowMs, countdown]);
-
-  async function copyToClipboard(textToCopy: string, key: string) {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200);
-    } catch {
-      // ignore
-    }
-  }
-
-  // If not curated, fall back to on-chain lookup (client-side).
-  if (!record) {
-    return <OnchainSerialView serial={serial} origin={origin} pageTitle={title} />;
-  }
-
-  return (
-    <>
-      <Head>
-        <title>{title}</title>
-        <meta name="description" content="Checks Explorer testnet serial page." />
-        <meta property="og:title" content={title} />
-        <meta property="og:description" content="Payment Checks v1 testnet serial page." />
-        <meta property="og:image" content={ogImageUrl} />
-        <meta property="og:type" content="website" />
-        <meta name="twitter:card" content="summary_large_image" />
-      </Head>
-
-      <div className="page">
-        <div className="container">
-          <div className="topBar">
-            <Link href="/" className="backLink">
-              ← Checks Explorer
-            </Link>
-
-            <button
-              className={`pillBtn ${copiedKey === "page" ? "copied" : ""}`}
-              onClick={() => copyToClipboard(`${origin}/testnet/${serial}`, "page")}
-              type="button"
-            >
-              {copiedKey === "page" ? "Copied" : "Copy page link"}
-            </button>
-          </div>
-
-          <h1 className="title">{serial}</h1>
-
-          <div className="chips">
-            <span className="chip">Testnet</span>
-            <span className="dot">•</span>
-            <span className="chip">Polygon Amoy (80002)</span>
-            <span className="dot">•</span>
-            <span className="chipStatus">
-              <span className="chipLabel">Status</span>
-              <span className={`chipValue ${isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""}`}>
-                {isVoided ? "Voided" : isRedeemed ? "Redeemed" : "Active"}
-              </span>
-            </span>
-          </div>
-
-          <div className="grid">
-            <div className="stack">
-              <div className="panel">
-                <div className="cardWrap">
-                  {cardSrc && (
-                    <>
-                      <img src={cardSrc} alt={`Check card ${serial}`} className="cardImg" draggable={false} />
-
-                      {/* QR overlay */}
-                      <div className="qrOuter" aria-hidden="true">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-                            `${origin}/testnet/${serial}`
-                          )}`}
-                          className="qrImg"
-                          alt=""
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {cardFailed && (
-                    <div className="imgFail">
-                      <div className="label">Check image failed to load.</div>
-                      <div className="muted">
-                        You can open it directly:
-                        <div className="btnRow">
-                          <a className="pillBtnLink" href={candidates[0]} target="_blank" rel="noreferrer">
-                            Open image
-                          </a>
-                          <a className="pillBtnLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
-                            Open page
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="btnRow">
-                  <a className="pillBtnLink" href={cardSrc || candidates[0]} target="_blank" rel="noreferrer">
-                    Open image
-                  </a>
-                  <a className="pillBtnLink" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
-                    Open page
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            <div className="stack">
-              <div className="panel">
-                <h2 className="h2">Details</h2>
-
-                <div className="detailGrid">
-                  <div className="label">Network</div>
-                  <div className="valueRight">Polygon Amoy (chainId 80002)</div>
-
-                  <div className="label">Contract</div>
-                  <div className="valueRight">
-                    <div className="contractBox monoNoWrap">{record.contract}</div>
-                    <div className="btnRow detailsBtnRow">
-                      <button
-                        className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
-                        onClick={() => copyToClipboard(record.contract, "contract")}
-                        type="button"
-                      >
-                        {copiedKey === "contract" ? "Copied" : "Copy"}
-                      </button>
-                      <a
-                        className="pillBtnLink"
-                        href={polygonscanAddress(record.contract)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open in Polygonscan
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="label">TokenID</div>
-                  <div className="valueRight">{record.tokenId}</div>
-
-                  <div className="label">Memo</div>
-                  <div className="valueRight">
-                    <div className="memoText">{record.memo || "—"}</div>
-                  </div>
-
-                  {(claimableAt != null || isVoided) && (
-                    <>
-                      {claimableAt != null && (
-                        <>
-                          <div className="label">Post-dated until</div>
-                          <div className="valueRight">{formatUtc(claimableAt)}</div>
-
-                          <div className="label">Claim countdown</div>
-                          <div className="valueRight">
-                            {claimableAtMs != null
-                              ? nowMs >= claimableAtMs
-                                ? "Claimable now"
-                                : `Claimable in ${countdown}`
-                              : "—"}
-                          </div>
-
-                          <div className="label">Status</div>
-                          <div className="valueRight">{claimStatusText || "—"}</div>
-                        </>
-                      )}
-
-                      {claimableAt == null && isVoided && (
-                        <>
-                          <div className="label">Status</div>
-                          <div className="valueRight">{claimStatusText}</div>
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="panel">
-                <h2 className="h2">Links</h2>
-
-                <ul className="ul">
-                  <HashItem label="Mint" hash={normalizedMint} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  <HashItem label="Transfer" hash={normalizedTransfer} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  <HashItem label="Redeem" hash={normalizedRedeem} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  {normalizedVoid && (
-                    <HashItem label="Void" hash={normalizedVoid} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  )}
-                </ul>
-              </div>
-
-              <div className="footer">
-                <div className="muted">Powered by Checks</div>
-                <div className="muted">Tip: This is an early explorer view. Full experience coming soon.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <style jsx global>{baseStyles}</style>
-    </>
-  );
-}
-
-// ---------- on-chain fallback (client-side) ----------
-//
-// If a serial is not in the curated list, we attempt to resolve it on-chain via PCHK.
-// This keeps /testnet/<SERIAL> stable while moving toward the MVP flow.
-
-const AMOY_CHAIN_ID = 80002;
 const AMOY_NAME = "Polygon Amoy (80002)";
 const AMOY_SCAN_BASE = "https://amoy.polygonscan.com";
 
 const AMOY_RPC_PRIMARY = "https://polygon-amoy-bor-rpc.publicnode.com/";
 const AMOY_RPC_FALLBACK = "https://rpc-amoy.polygon.technology/";
 
-// From checks/docs/deployments/amoy-pchk-erc6551.md
-const PCHK_ADDRESS = "0x4dC6db5f06DAF4716b749EAb8d8efa27BcEE1218";
-const MUSD_ADDRESS = "0xa01C7368672b61AdE32FAEf6aeD5aeC1845dedb5";
-const PCHK_DEPLOY_BLOCK = 34655184n;
+type DeploymentConfig = {
+  label: string;
+  contract: string; // PaymentChecks contract
+  token: string; // MockUSD collateral token
+  fromBlock: bigint;
+};
+
+// Canonical first, then legacy fallback.
+// Canonical: docs/deployments/amoy-payment-checks.md
+// Legacy:   docs/deployments/amoy-payment-checks-legacy.md
+const DEPLOYMENTS: DeploymentConfig[] = [
+  {
+    label: "Payment Checks",
+    contract: "0x9ED92dd2626E372DB3FD71Fe300f76d90aF2d589",
+    token: "0x0D085A1EBb74f050cE3A8ed18E3f998F04A23268",
+    // Safe lower bound (includes infra txs at 34840100 and PaymentChecks deploy at 34840101)
+    fromBlock: 34840100n,
+  },
+  {
+    label: "Payment Checks (Legacy)",
+    contract: "0x4dC6db5f06DAF4716b749EAb8d8efa27BcEE1218",
+    token: "0xa01C7368672b61AdE32FAEf6aeD5aeC1845dedb5",
+    fromBlock: 34655184n,
+  },
+];
 
 const amoyClient = createPublicClient({
   chain: polygonAmoy,
@@ -414,13 +106,33 @@ const amoyClient = createPublicClient({
 });
 
 // --- viem TS compat ---
-// viem's typings can vary across toolchains; to keep builds stable we cast the
-// params to `any` without sending extra/unsupported RPC fields (like `authorizationList`).
-async function readContractCompat<T = unknown>(params: any): Promise<T> {
-  return (await amoyClient.readContract(params as any)) as T;
+// viem's typings can vary across versions. This keeps the file stable in Next/Vercel type checking.
+async function readContractCompat(args: any) {
+  return amoyClient.readContract(args as any) as any;
 }
 
+// --- helpers ---
+function scanAddr(addr: string) {
+  return `${AMOY_SCAN_BASE}/address/${addr}`;
+}
+function scanTx(hash: string) {
+  return `${AMOY_SCAN_BASE}/tx/${hash}`;
+}
+function bytes32ToTrimmedAscii(hex: Hex): string {
+  try {
+    const s = hexToString(hex, { size: 32 });
+    return s.replace(/\u0000/g, "").trim();
+  } catch {
+    return "";
+  }
+}
 
+function serialToBytes32(serial: string): Hex {
+  // Serial is ASCII, <= 32 bytes guaranteed by our generation rules
+  return stringToHex(serial, { size: 32 });
+}
+
+// ABI for PaymentChecks (canonical contract)
 const PCHK_ABI = [
   {
     type: "function",
@@ -453,28 +165,22 @@ const PCHK_ABI = [
   },
   {
     type: "function",
-    name: "accountOf",
-    stateMutability: "view",
-    inputs: [{ name: "checkId", type: "uint256" }],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
     name: "ownerOf",
     stateMutability: "view",
     inputs: [{ name: "tokenId", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
   },
-] as const;
-
-const ERC20_ABI = [
   {
     type: "function",
-    name: "balanceOf",
+    name: "accountOf",
     stateMutability: "view",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
+    inputs: [{ name: "checkId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
   },
+] as const;
+
+// ERC20 reads
+const ERC20_ABI = [
   {
     type: "function",
     name: "decimals",
@@ -489,39 +195,20 @@ const ERC20_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "string" }],
   },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ] as const;
 
-function scanTx(tx: string) {
-  return `${AMOY_SCAN_BASE}/tx/${tx}`;
-}
-
-function scanAddr(addr: string) {
-  return `${AMOY_SCAN_BASE}/address/${addr}`;
-}
-
-function bytes32FromSerial(serial: string): Hex {
-  // Right-padded bytes32, matching Solidity bytes32("...") and cast format-bytes32-string behavior.
-  return stringToHex(serial, { size: 32 });
-}
-
-function bytes32ToTrimmedAscii(b32?: Hex | null): string {
-  if (!b32) return "";
-  try {
-    return hexToString(b32, { size: 32 }).replace(/\0+$/, "");
-  } catch {
-    return "";
-  }
-}
-
-function statusToText(status: number) {
-  // Status { NONE=0, ACTIVE=1, REDEEMED=2, VOID=3 }
-  if (status === 3) return "Voided";
-  if (status === 2) return "Redeemed";
-  if (status === 1) return "Active";
-  return "Unknown";
-}
-
 type OnchainViewModel = {
+  deploymentLabel: string;
+  contract: string;
+  token: string;
+
   tokenId: bigint;
   issuer: string;
   holder: string;
@@ -539,27 +226,225 @@ type OnchainViewModel = {
   tbaBalance: bigint;
 };
 
-function OnchainSerialView({
-  serial,
-  origin,
-  pageTitle,
-}: {
-  serial: string;
-  origin: string;
-  pageTitle: string;
-}) {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
+async function resolveDeploymentAndTokenId(serialB32: Hex): Promise<{
+  deployment: DeploymentConfig;
+  tokenId: bigint;
+} | null> {
+  for (const d of DEPLOYMENTS) {
+    const tokenId = (await readContractCompat({
+      address: d.contract,
+      abi: PCHK_ABI,
+      functionName: "tokenIdForSerial",
+      args: [serialB32],
+    })) as bigint;
 
+    if (tokenId && tokenId !== 0n) return { deployment: d, tokenId };
+  }
+  return null;
+}
+
+function StatusPill({ status }: { status: number }) {
+  // 0 NONE, 1 ACTIVE, 2 REDEEMED, 3 VOID
+  const label = status === 1 ? "ACTIVE" : status === 2 ? "REDEEMED" : status === 3 ? "VOID" : "UNKNOWN";
+  const cls = status === 1 ? "active" : status === 2 ? "redeemed" : status === 3 ? "void" : "unknown";
+  return <span className={`pill ${cls}`}>{label}</span>;
+}
+
+export default function TestnetSerialPage(props: PageProps) {
+  const { serial, record, origin } = props;
+
+  // Serial validation (defense)
+  const isValid = useMemo(() => isValidSerialFormat(serial), [serial]);
+
+  if (!isValid) {
+    return (
+      <>
+        <Head>
+          <title>Invalid Serial — Checks Explorer</title>
+        </Head>
+        <div className="page">
+          <div className="header">
+            <Link className="back" href="/testnet">
+              ← Back
+            </Link>
+            <h1 className="title">Invalid serial</h1>
+          </div>
+          <div className="card">
+            <div className="label">Serial</div>
+            <div className="value mono">{serial}</div>
+            <div className="note">
+              This does not match the Checks serial format. Please verify the URL or QR code source.
+            </div>
+          </div>
+        </div>
+        <style jsx>{styles}</style>
+      </>
+    );
+  }
+
+  // If curated record exists, render the curated view (FMV etc)
+  if (record) {
+    return (
+      <>
+        <Head>
+          <title>{serial} — Checks Explorer (Testnet)</title>
+        </Head>
+
+        <div className="page">
+          <div className="header">
+            <Link className="back" href="/testnet">
+              ← Back
+            </Link>
+            <div className="titleRow">
+              <h1 className="title">{serial}</h1>
+              <div className="pillWrap">
+                <span className="pill active">ACTIVE</span>
+              </div>
+            </div>
+            <div className="sub">Testnet serial page. This page is curated for specific demo checks.</div>
+          </div>
+
+          <div className="grid">
+            <div className="left">
+              <div className="checkWrap">
+                <div className="checkBox">
+                  {/* Check image */}
+                  <img
+                    src={`/checks/testnet/${serial}.png`}
+                    alt={`Check ${serial}`}
+                    className="checkImg"
+                    draggable={false}
+                  />
+
+                  {/* QR overlay locked — do not change desktop positioning */}
+                  <div className="qrOuter">
+                    <img
+                      src={`/qr/testnet/${serial}.png`}
+                      alt={`QR for ${serial}`}
+                      className="qrImg"
+                      draggable={false}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="noteCard">
+                <div className="noteTitle">Note</div>
+                <div className="noteText">
+                  This is a curated testnet demo. For newly minted checks, this route falls back to on-chain lookup.
+                </div>
+              </div>
+            </div>
+
+            <div className="right">
+              <div className="card">
+                <div className="sectionTitle">Details</div>
+
+                <div className="detailGrid">
+                  <div className="label">Serial</div>
+                  <div className="valueRight monoNoWrap">{serial}</div>
+
+                  <div className="label">Network</div>
+                  <div className="valueRight">{record.network}</div>
+
+                  <div className="label">Contract</div>
+                  <div className="valueRight">
+                    <div className="contractBox monoNoWrap">{record.contract}</div>
+                    <div className="btnRow detailsBtnRow">
+                      <a className="pillBtnLink" href={scanAddr(record.contract)} target="_blank" rel="noreferrer">
+                        Open in Polygonscan
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="label">TokenID</div>
+                  <div className="valueRight">{record.tokenId}</div>
+
+                  {record.memo ? (
+                    <>
+                      <div className="label">Memo</div>
+                      <div className="valueRight">{record.memo}</div>
+                    </>
+                  ) : null}
+
+                  {record.claimableAt ? (
+                    <>
+                      <div className="label">Claimable At</div>
+                      <div className="valueRight monoNoWrap">
+                        {new Date(record.claimableAt * 1000).toLocaleString()}
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="sectionTitle">Transactions</div>
+
+                <ul className="ul">
+                  {record.mintTx ? (
+                    <li className="li">
+                      <div className="label">Mint</div>
+                      <a className="hashLink monoNoWrap" href={scanTx(record.mintTx)} target="_blank" rel="noreferrer">
+                        {record.mintTx}
+                      </a>
+                    </li>
+                  ) : null}
+
+                  {record.redeemTx ? (
+                    <li className="li">
+                      <div className="label">Redeem</div>
+                      <a className="hashLink monoNoWrap" href={scanTx(record.redeemTx)} target="_blank" rel="noreferrer">
+                        {record.redeemTx}
+                      </a>
+                    </li>
+                  ) : null}
+
+                  {record.voidTx ? (
+                    <li className="li">
+                      <div className="label">Void</div>
+                      <a className="hashLink monoNoWrap" href={scanTx(record.voidTx)} target="_blank" rel="noreferrer">
+                        {record.voidTx}
+                      </a>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+
+              <div className="card subtle">
+                <div className="sectionTitle">Share</div>
+                <div className="shareRow">
+                  <div className="shareLabel">URL</div>
+                  <div className="shareValue monoNoWrap">{origin}/testnet/{serial}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <style jsx>{styles}</style>
+      </>
+    );
+  }
+
+  // No curated record -> on-chain lookup view
+  return (
+    <>
+      <Head>
+        <title>{serial} — Checks Explorer (Testnet)</title>
+      </Head>
+      <OnchainSerialView serial={serial} origin={origin} />
+      <style jsx>{styles}</style>
+    </>
+  );
+}
+
+function OnchainSerialView({ serial, origin }: { serial: string; origin: string }) {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vm, setVm] = useState<OnchainViewModel | null>(null);
-
-  useEffect(() => {
-    const t = setInterval(() => setNowMs(Date.now()), 15_000);
-    return () => clearInterval(t);
-  }, []);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -571,39 +456,36 @@ function OnchainSerialView({
       setVm(null);
 
       try {
-        const serialB32 = bytes32FromSerial(serial);
+        const serialB32 = serialToBytes32(serial);
 
-        const tokenId = (await readContractCompat({
-          address: PCHK_ADDRESS,
-          abi: PCHK_ABI,
-          functionName: "tokenIdForSerial",
-          args: [serialB32],
-        })) as bigint;
+        const resolved = await resolveDeploymentAndTokenId(serialB32);
 
         if (!alive) return;
 
-        if (!tokenId || tokenId === 0n) {
+        if (!resolved) {
           setNotFound(true);
           setLoading(false);
           return;
         }
 
+        const { deployment, tokenId } = resolved;
+
         const pc = (await readContractCompat({
-          address: PCHK_ADDRESS,
+          address: deployment.contract,
           abi: PCHK_ABI,
           functionName: "getPaymentCheck",
           args: [tokenId],
         })) as any;
 
         const tba = (await readContractCompat({
-          address: PCHK_ADDRESS,
+          address: deployment.contract,
           abi: PCHK_ABI,
           functionName: "accountOf",
           args: [tokenId],
         })) as string;
 
         const holder = (await readContractCompat({
-          address: PCHK_ADDRESS,
+          address: deployment.contract,
           abi: PCHK_ABI,
           functionName: "ownerOf",
           args: [tokenId],
@@ -611,7 +493,7 @@ function OnchainSerialView({
 
         const decimals = Number(
           (await readContractCompat({
-            address: MUSD_ADDRESS,
+            address: deployment.token,
             abi: ERC20_ABI,
             functionName: "decimals",
           })) as number
@@ -619,14 +501,14 @@ function OnchainSerialView({
 
         const symbol = String(
           (await readContractCompat({
-            address: MUSD_ADDRESS,
+            address: deployment.token,
             abi: ERC20_ABI,
             functionName: "symbol",
           })) as string
         );
 
         const tbaBalance = (await readContractCompat({
-          address: MUSD_ADDRESS,
+          address: deployment.token,
           abi: ERC20_ABI,
           functionName: "balanceOf",
           args: [tba],
@@ -651,24 +533,24 @@ function OnchainSerialView({
 
           const [mints, redeems, voids] = await Promise.all([
             amoyClient.getLogs({
-              address: PCHK_ADDRESS,
+              address: deployment.contract as any,
               event: mintedEvent,
               args: { checkId: tokenId },
-              fromBlock: PCHK_DEPLOY_BLOCK,
+              fromBlock: deployment.fromBlock,
               toBlock: "latest",
             }),
             amoyClient.getLogs({
-              address: PCHK_ADDRESS,
+              address: deployment.contract as any,
               event: redeemedEvent,
               args: { checkId: tokenId },
-              fromBlock: PCHK_DEPLOY_BLOCK,
+              fromBlock: deployment.fromBlock,
               toBlock: "latest",
             }),
             amoyClient.getLogs({
-              address: PCHK_ADDRESS,
+              address: deployment.contract as any,
               event: voidedEvent,
               args: { checkId: tokenId },
-              fromBlock: PCHK_DEPLOY_BLOCK,
+              fromBlock: deployment.fromBlock,
               toBlock: "latest",
             }),
           ]);
@@ -682,12 +564,15 @@ function OnchainSerialView({
           voidTx = null;
         }
 
-
         if (!alive) return;
 
         const status = Number(pc?.status ?? 0);
 
         setVm({
+          deploymentLabel: deployment.label,
+          contract: deployment.contract,
+          token: deployment.token,
+
           tokenId,
           issuer: String(pc?.issuer ?? ""),
           holder,
@@ -698,7 +583,8 @@ function OnchainSerialView({
           claimableAt: (pc?.claimableAt ?? 0n) as bigint,
           title: bytes32ToTrimmedAscii(pc?.title as Hex),
           memo: String(pc?.memo ?? ""),
-          status,          mintTx,
+          status,
+          mintTx,
           redeemTx,
           voidTx,
           tbaBalance,
@@ -707,7 +593,10 @@ function OnchainSerialView({
         setLoading(false);
       } catch (e: any) {
         if (!alive) return;
-        const msg = e?.shortMessage || e?.message || (typeof e === 'string' ? e : 'On-chain lookup failed.');
+        const msg =
+          e?.shortMessage ||
+          e?.message ||
+          (typeof e === "string" ? e : "On-chain lookup failed.");
         setError(msg);
         setLoading(false);
       }
@@ -724,587 +613,543 @@ function OnchainSerialView({
     try {
       await navigator.clipboard.writeText(textToCopy);
       setCopiedKey(key);
-      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1200);
+      setTimeout(() => setCopiedKey(null), 1200);
     } catch {
       // ignore
     }
   }
 
-  const claimableAtMs = vm?.claimableAt ? Number(vm.claimableAt) * 1000 : null;
-  const countdown = claimableAtMs != null ? msToHuman(claimableAtMs - nowMs) : null;
+  const claimableText = useMemo(() => {
+    if (!vm) return "—";
+    const t = Number(vm.claimableAt);
+    if (!t) return "Instant Claim";
+    return new Date(t * 1000).toLocaleString();
+  }, [vm]);
 
-  const amountHuman = vm ? `${formatUnits(vm.amount, vm.decimals)} ${vm.symbol}` : "—";
-  const tbaBalHuman = vm ? `${formatUnits(vm.tbaBalance, vm.decimals)} ${vm.symbol}` : "—";
+  const amountText = useMemo(() => {
+    if (!vm) return "—";
+    return `${formatUnits(vm.amount, vm.decimals)} ${vm.symbol}`;
+  }, [vm]);
 
-  const statusText = vm ? statusToText(vm.status) : "—";
-  const isVoided = vm?.status === 3;
-  const isRedeemed = vm?.status === 2;
-
-  const claimStatusText = useMemo(() => {
-    if (!vm) return null;
-    if (isVoided) return "This check was voided before it became claimable.";
-    if (!claimableAtMs) return null;
-    if (nowMs >= claimableAtMs) return "Claimable now.";
-    return `Claimable in ${countdown}`;
-  }, [vm, isVoided, claimableAtMs, nowMs, countdown]);
+  const tbaBalText = useMemo(() => {
+    if (!vm) return "—";
+    return `${formatUnits(vm.tbaBalance, vm.decimals)} ${vm.symbol}`;
+  }, [vm]);
 
   return (
-    <>
-      <Head>
-        <title>{pageTitle}</title>
-        <meta name="robots" content="noindex,nofollow" />
-        <meta name="description" content="Checks Explorer testnet serial page (on-chain lookup)." />
-      </Head>
+    <div className="page">
+      <div className="header">
+        <Link className="back" href="/testnet">
+          ← Back
+        </Link>
 
-      <div className="page">
-        <div className="container">
-          <div className="topBar">
-            <Link href="/" className="backLink">
-              ← Checks Explorer
-            </Link>
-
-            <button
-              className={`pillBtn ${copiedKey === "page" ? "copied" : ""}`}
-              onClick={() => copyToClipboard(`${origin}/testnet/${serial}`, "page")}
-              type="button"
-            >
-              {copiedKey === "page" ? "Copied" : "Copy page link"}
-            </button>
-          </div>
-
+        <div className="titleRow">
           <h1 className="title">{serial}</h1>
+          <div className="pillWrap">{vm ? <StatusPill status={vm.status} /> : null}</div>
+        </div>
 
-          <div className="chips">
-            <span className="chip">Testnet</span>
-            <span className="dot">•</span>
-            <span className="chip">{AMOY_NAME}</span>
-            <span className="dot">•</span>
-            <span className="chipStatus">
-              <span className="chipLabel">Status</span>
-              <span className={`chipValue ${isVoided ? "chipRed" : isRedeemed ? "chipGreen" : ""}`}>
-                {statusText}
-              </span>
-            </span>
-          </div>
+        <div className="sub">
+          Testnet serial page. If this serial is not part of the curated demo list, we resolve it on-chain.
+        </div>
+      </div>
 
-          <div className="grid">
-            <div className="stack">
-              <div className="panel">
-                <h2 className="h2">Preview</h2>
-                <div className="imgFail">
-                  <div className="label">On-chain check</div>
-                  <div className="muted">
-                    This serial is not in the curated image list. A “printed check” preview will be added as we wire the mint UI.
-                  </div>
-                </div>
+      <div className="grid">
+        <div className="left">
+          <div className="checkWrap">
+            <div className="checkBox">
+              {/* If a curated image exists, it will display. Otherwise, fallback check image placeholder. */}
+              <img
+                src={`/checks/testnet/${serial}.png`}
+                alt={`Check ${serial}`}
+                className="checkImg"
+                draggable={false}
+                onError={(e) => {
+                  const t = e.currentTarget;
+                  if (t && !t.src.includes("/checks/blank.png")) t.src = "/checks/blank.png";
+                }}
+              />
+
+              {/* QR overlay locked — do not change desktop positioning */}
+              <div className="qrOuter">
+                <img
+                  src={`/qr/testnet/${serial}.png`}
+                  alt={`QR for ${serial}`}
+                  className="qrImg"
+                  draggable={false}
+                  onError={(e) => {
+                    const t = e.currentTarget;
+                    if (t && !t.src.includes("/qr/blank.png")) t.src = "/qr/blank.png";
+                  }}
+                />
               </div>
             </div>
+          </div>
 
-            <div className="stack">
-              <div className="panel">
-                <h2 className="h2">Details</h2>
+          {loading ? (
+            <div className="noteCard">
+              <div className="noteTitle">Loading</div>
+              <div className="noteText">Resolving serial on-chain…</div>
+            </div>
+          ) : null}
 
-                {loading && <p className="muted">Loading on-chain data…</p>}
+          {notFound ? (
+            <div className="noteCard">
+              <div className="noteTitle">Not found</div>
+              <div className="noteText">
+                This serial is not in the curated list and was not found on-chain on the supported Amoy deployments.
+              </div>
+            </div>
+          ) : null}
 
-                {error && (
-                  <div className="imgFail">
-                    <div className="label">Error</div>
-                    <div className="muted">{error}</div>
+          {error ? (
+            <div className="noteCard">
+              <div className="noteTitle">Error</div>
+              <div className="noteText">{error}</div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="right">
+          <div className="card">
+            <div className="sectionTitle">On-chain Details</div>
+
+            {vm && !loading && !error && (
+              <div className="detailGrid">
+                <div className="label">Network</div>
+                <div className="valueRight">{AMOY_NAME}</div>
+
+                <div className="label">Contract</div>
+                <div className="valueRight">
+                  <div className="contractBox monoNoWrap">{vm.contract}</div>
+                  <div className="btnRow detailsBtnRow">
+                    <button
+                      className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
+                      onClick={() => copyToClipboard(vm.contract, "contract")}
+                      type="button"
+                    >
+                      {copiedKey === "contract" ? "Copied" : "Copy"}
+                    </button>
+                    <a className="pillBtnLink" href={scanAddr(vm.contract)} target="_blank" rel="noreferrer">
+                      Open in Polygonscan
+                    </a>
                   </div>
-                )}
+                </div>
 
-                {notFound && !loading && !error && (
-                  <div className="imgFail">
-                    <div className="label">Not found</div>
-                    <div className="muted">This serial isn’t in the curated list and no on-chain check was found.</div>
-                  </div>
-                )}
+                <div className="label">TokenID</div>
+                <div className="valueRight">{vm.tokenId.toString()}</div>
 
-                {vm && !loading && !error && (
-                  <div className="detailGrid">
-                    <div className="label">Network</div>
-                    <div className="valueRight">{AMOY_NAME}</div>
+                <div className="label">Issuer</div>
+                <div className="valueRight">
+                  <a className="hashLink monoNoWrap" href={scanAddr(vm.issuer)} target="_blank" rel="noreferrer">
+                    {vm.issuer}
+                  </a>
+                </div>
 
-                    <div className="label">Contract</div>
-                    <div className="valueRight">
-                      <div className="contractBox monoNoWrap">{PCHK_ADDRESS}</div>
-                      <div className="btnRow detailsBtnRow">
-                        <button
-                          className={`pillBtn ${copiedKey === "contract" ? "copied" : ""}`}
-                          onClick={() => copyToClipboard(PCHK_ADDRESS, "contract")}
-                          type="button"
-                        >
-                          {copiedKey === "contract" ? "Copied" : "Copy"}
-                        </button>
-                        <a className="pillBtnLink" href={scanAddr(PCHK_ADDRESS)} target="_blank" rel="noreferrer">
-                          Open in Polygonscan
-                        </a>
-                      </div>
-                    </div>
+                <div className="label">Holder</div>
+                <div className="valueRight">
+                  <a className="hashLink monoNoWrap" href={scanAddr(vm.holder)} target="_blank" rel="noreferrer">
+                    {vm.holder}
+                  </a>
+                </div>
 
-                    <div className="label">TokenID</div>
-                    <div className="valueRight">{vm.tokenId.toString()}</div>
+                <div className="label">TBA</div>
+                <div className="valueRight">
+                  <a className="hashLink monoNoWrap" href={scanAddr(vm.tba)} target="_blank" rel="noreferrer">
+                    {vm.tba}
+                  </a>
+                </div>
 
-                    <div className="label">Issuer</div>
-                    <div className="valueRight">
-                      <a className="hashLink monoNoWrap" href={scanAddr(vm.issuer)} target="_blank" rel="noreferrer">
-                        {vm.issuer}
-                      </a>
-                    </div>
+                <div className="label">Amount</div>
+                <div className="valueRight">{amountText}</div>
 
-                    <div className="label">Holder</div>
-                    <div className="valueRight">
-                      <a className="hashLink monoNoWrap" href={scanAddr(vm.holder)} target="_blank" rel="noreferrer">
-                        {vm.holder}
-                      </a>
-                    </div>
+                <div className="label">TBA Balance</div>
+                <div className="valueRight">{tbaBalText}</div>
 
-                    <div className="label">TBA</div>
-                    <div className="valueRight">
-                      <a className="hashLink monoNoWrap" href={scanAddr(vm.tba)} target="_blank" rel="noreferrer">
-                        {vm.tba}
-                      </a>
-                    </div>
+                <div className="label">Claimable At</div>
+                <div className="valueRight monoNoWrap">{claimableText}</div>
 
-                    <div className="label">Amount</div>
-                    <div className="valueRight">{amountHuman}</div>
-
-                    <div className="label">TBA balance</div>
-                    <div className="valueRight">{tbaBalHuman}</div>
-
+                {vm.title ? (
+                  <>
                     <div className="label">Title</div>
-                    <div className="valueRight">{vm.title || "—"}</div>
+                    <div className="valueRight">{vm.title}</div>
+                  </>
+                ) : null}
 
+                {vm.memo ? (
+                  <>
                     <div className="label">Memo</div>
-                    <div className="valueRight">
-                      <div className="memoText">{vm.memo || "—"}</div>
-                    </div>
-
-                    <div className="label">Post-dated until</div>
-                    <div className="valueRight">{formatUtc(Number(vm.claimableAt))}</div>
-
-                    <div className="label">Claim countdown</div>
-                    <div className="valueRight">
-                      {claimableAtMs != null
-                        ? nowMs >= claimableAtMs
-                          ? "Claimable now"
-                          : `Claimable in ${countdown}`
-                        : "—"}
-                    </div>
-
-                    <div className="label">Status</div>
-                    <div className="valueRight">{claimStatusText || "—"}</div>
-                  </div>
-                )}
+                    <div className="valueRight">{vm.memo}</div>
+                  </>
+                ) : null}
               </div>
+            )}
+          </div>
 
-              <div className="panel">
-                <h2 className="h2">Links</h2>
+          <div className="card">
+            <div className="sectionTitle">Transactions</div>
 
-                {vm ? (
-                  <ul className="ul">
-                    <HashItem label="Mint" hash={vm.mintTx} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                    <HashItem label="Redeem" hash={vm.redeemTx} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                    <HashItem label="Void" hash={vm.voidTx} copiedKey={copiedKey} onCopy={copyToClipboard} />
-                  </ul>
-                ) : (
-                  <p className="muted">Not available</p>
-                )}
-              </div>
+            {vm && !loading && !error ? (
+              <ul className="ul">
+                {vm.mintTx ? (
+                  <li className="li">
+                    <div className="label">Mint</div>
+                    <a className="hashLink monoNoWrap" href={scanTx(vm.mintTx)} target="_blank" rel="noreferrer">
+                      {vm.mintTx}
+                    </a>
+                  </li>
+                ) : null}
 
-              <div className="footer">
-                <div className="muted">Powered by Checks</div>
-                <div className="muted">Tip: This is an early explorer view. Full experience coming soon.</div>
+                {vm.redeemTx ? (
+                  <li className="li">
+                    <div className="label">Redeem</div>
+                    <a className="hashLink monoNoWrap" href={scanTx(vm.redeemTx)} target="_blank" rel="noreferrer">
+                      {vm.redeemTx}
+                    </a>
+                  </li>
+                ) : null}
+
+                {vm.voidTx ? (
+                  <li className="li">
+                    <div className="label">Void</div>
+                    <a className="hashLink monoNoWrap" href={scanTx(vm.voidTx)} target="_blank" rel="noreferrer">
+                      {vm.voidTx}
+                    </a>
+                  </li>
+                ) : null}
+              </ul>
+            ) : (
+              <div className="noteText">Tx hashes are best-effort (depends on RPC log support).</div>
+            )}
+          </div>
+
+          <div className="card subtle">
+            <div className="sectionTitle">Share</div>
+            <div className="shareRow">
+              <div className="shareLabel">URL</div>
+              <div className="shareValue monoNoWrap">
+                {origin}/testnet/{serial}
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      <style jsx global>{baseStyles}</style>
-    </>
+    </div>
   );
 }
 
-function HashItem({
-  label,
-  hash,
-  copiedKey,
-  onCopy,
-}: {
-  label: string;
-  hash: string | null;
-  copiedKey: string | null;
-  onCopy: (textToCopy: string, key: string) => void;
-}) {
-  const key = `tx:${label.toLowerCase()}`;
-  const scanUrl = hash ? polygonscanTx(hash) : null;
-
-  return (
-    <li className="li">
-      <div className="label">{label}</div>
-
-      {hash ? (
-        <>
-          <a className="hashLink monoNoWrap" href={scanUrl!} target="_blank" rel="noreferrer">
-            {hash}
-          </a>
-          <div className="btnRow">
-            <button
-              className={`pillBtn ${copiedKey === key ? "copied" : ""}`}
-              onClick={() => onCopy(hash, key)}
-              type="button"
-            >
-              {copiedKey === key ? "Copied" : "Copy"}
-            </button>
-          </div>
-        </>
-      ) : (
-        <div className="hashLine monoNoWrap">Not available</div>
-      )}
-    </li>
-  );
+const styles = `
+.page {
+  min-height: 100vh;
+  padding: 32px 18px 64px;
+  background: #070b11;
+  color: #e6edf3;
 }
 
-const baseStyles = `
-  :global(html, body) {
-    padding: 0;
-    margin: 0;
-  }
+.header {
+  max-width: 1180px;
+  margin: 0 auto 18px;
+}
 
-  .page {
-    font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
-      "Apple Color Emoji", "Segoe UI Emoji";
-    background: #ffffff;
-    color: #0f172a;
-  }
+.back {
+  display: inline-block;
+  color: #8aa4bf;
+  text-decoration: none;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
 
-  .container {
-    max-width: 1040px;
-    padding: 28px 18px 40px;
-    margin: 0 auto;
-  }
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
 
-  .topBar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    margin-bottom: 12px;
-  }
+.title {
+  font-size: 52px;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
 
-  .backLink {
-    color: #4f46e5;
-    text-decoration: none;
-    font-weight: 700;
-  }
-  .backLink:hover {
-    text-decoration: underline;
-  }
+.pillWrap {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
 
-  .title {
-    font-size: 48px;
-    line-height: 1.02;
-    margin: 10px 0 14px 0;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
+.pill {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: #e6edf3;
+}
 
-  .chips {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-bottom: 18px;
-  }
+.pill.active {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.16);
+}
 
-  .chip {
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    border-radius: 999px;
-    padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #0f172a;
-  }
+.pill.redeemed {
+  border-color: rgba(59, 130, 246, 0.40);
+  background: rgba(59, 130, 246, 0.16);
+}
 
-  .dot {
-    color: #94a3b8;
-  }
+.pill.void {
+  border-color: rgba(239, 68, 68, 0.40);
+  background: rgba(239, 68, 68, 0.16);
+}
 
-  .chipStatus {
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    border-radius: 999px;
-    padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    display: inline-flex;
-    gap: 10px;
-    align-items: center;
-  }
+.pill.unknown {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.12);
+}
 
-  .chipLabel {
-    color: #0f172a;
-    font-weight: 600;
-  }
+.sub {
+  color: rgba(230, 237, 243, 0.72);
+  font-size: 14px;
+  margin-top: 6px;
+  max-width: 940px;
+}
 
-  .chipValue {
-    font-weight: 600;
-  }
+.grid {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 18px;
+}
 
-  .chipGreen {
-    color: #16a34a;
-    font-weight: 800;
-  }
+.left,
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
 
-  .chipRed {
-    color: #dc2626;
-    font-weight: 800;
-  }
+.checkWrap {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  padding: 14px;
+}
 
+.checkBox {
+  position: relative;
+  width: 100%;
+}
+
+.checkImg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* ===== QR LOCKED POSITIONS (DO NOT TOUCH DESKTOP) ===== */
+.qrOuter {
+  position: absolute;
+  right: 26px;
+  top: 180px;
+  width: 112px;
+  height: 112px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qrImg {
+  width: 96px;
+  height: 96px;
+  border-radius: 0px;
+}
+/* ===================================================== */
+
+.noteCard {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.noteTitle {
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.noteText {
+  color: rgba(230, 237, 243, 0.78);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.card {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.card.subtle {
+  background: rgba(255,255,255,0.02);
+}
+
+.sectionTitle {
+  font-weight: 900;
+  margin-bottom: 10px;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px 12px;
+  align-items: start;
+}
+
+.label {
+  color: rgba(230, 237, 243, 0.68);
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.valueRight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 13px;
+  color: rgba(230, 237, 243, 0.92);
+}
+
+.monoNoWrap {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  white-space: nowrap;
+}
+
+.contractBox {
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
+  background: transparent;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  display: block;
+}
+
+.hashLine,
+.hashLink {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  display: block;
+  max-width: 100%;
+}
+
+.hashLink {
+  color: #7dd3fc;
+  text-decoration: none;
+}
+.hashLink:hover {
+  text-decoration: underline;
+}
+
+.btnRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pillBtn,
+.pillBtnLink {
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: rgba(230, 237, 243, 0.92);
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.pillBtn.copied {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.16);
+}
+
+.shareRow {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.shareLabel {
+  color: rgba(230, 237, 243, 0.68);
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.shareValue {
+  color: rgba(230, 237, 243, 0.92);
+  font-weight: 800;
+  font-size: 13px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Responsive */
+@media (max-width: 980px) {
   .grid {
-    display: grid;
-    grid-template-columns: 1.12fr 1fr;
-    gap: 22px;
-    align-items: start;
+    grid-template-columns: 1fr;
   }
-
-  .stack {
-    display: flex;
+  .titleRow {
     flex-direction: column;
-    gap: 18px;
+    align-items: flex-start;
+    gap: 10px;
   }
-
-  .panel {
-    border: 1px solid #e5e7eb;
-    border-radius: 18px;
-    padding: 18px;
-    background: #ffffff;
+  .title {
+    font-size: 46px;
   }
+}
 
-  .h2 {
-    font-size: 28px;
-    margin: 0 0 14px 0;
-    font-weight: 800;
-    letter-spacing: -0.01em;
+/* QR shrinks ONLY on true mobile */
+@media (max-width: 520px) {
+  .title {
+    font-size: 42px;
   }
-
-  .label {
-    color: #64748b;
-    font-weight: 700;
-    margin-bottom: 6px;
-    font-size: 13px;
-  }
-
   .detailGrid {
-    display: grid;
-    grid-template-columns: 160px 1fr;
-    row-gap: 18px;
-    column-gap: 16px;
-    align-items: start;
+    grid-template-columns: 1fr;
   }
-
-  .detailGrid .label {
-    margin-bottom: 0;
-  }
-
   .valueRight {
-    color: #0f172a;
     font-weight: 600;
   }
 
-  .memoText {
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.35;
-  }
-
-  .cardWrap {
-    position: relative;
-    width: 100%;
-    min-height: 260px;
-  }
-
-  .cardImg {
-    width: 100%;
-    border-radius: 16px;
-    display: block;
-    user-select: none;
-  }
-
-  /* LOCKED QR overlay — do not edit (see docs/qr-overlay-reference.md) */
   .qrOuter {
-    position: absolute;
-    right: 18px;  /* +10px (moves overlay left) */
-    top: 143px;   /* tuned */
-    width: 106px;
-    height: 106px;
-    background: #ffffff;
+    right: 16px;
+    top: 135px;
+    width: 102px;
+    height: 102px;
     border-radius: 7px;
-    border: 1px solid rgba(15, 23, 42, 0.06);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
   }
 
   .qrImg {
-    width: 95px;
-    height: 95px;
+    width: 86px;
+    height: 86px;
     border-radius: 0px;
-    display: block;
   }
-
-  .imgFail {
-    border: 1px dashed #e5e7eb;
-    border-radius: 14px;
-    padding: 14px;
-    background: #fafafa;
-  }
-
-  .btnRow {
-    margin-top: 12px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .detailsBtnRow {
-    margin-bottom: 8px;
-  }
-
-  .pillBtn,
-  .pillBtnLink {
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    color: #0f172a;
-    border-radius: 999px;
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1;
-    text-decoration: none;
-    cursor: pointer;
-    font-family: inherit;
-  }
-
-  .pillBtn:hover,
-  .pillBtnLink:hover {
-    background: #f8fafc;
-  }
-
-  .pillBtnLink {
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .copied {
-    border-color: rgba(34, 197, 94, 0.55) !important;
-    background: rgba(34, 197, 94, 0.12) !important;
-  }
-
-  .ul {
-    margin: 0;
-    padding-left: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .li {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .contractBox {
-    border: none;
-    border-radius: 0;
-    padding: 2px 0;
-    background: transparent;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    display: block;
-  }
-
-  .hashLine,
-  .hashLink {
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    background: transparent;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    display: block;
-  }
-
-  .hashLink {
-    text-decoration: none;
-    color: #4f46e5;
-  }
-
-  .hashLink:hover {
-    text-decoration: underline;
-  }
-
-  .monoNoWrap {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-      monospace;
-    white-space: nowrap;
-    font-size: 13px;
-  }
-
-  .muted {
-    color: #64748b;
-    font-size: 13px;
-  }
-
-  .footer {
-    margin-top: 34px;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-
-  @media (max-width: 1040px) {
-    .grid {
-      grid-template-columns: 1fr;
-      gap: 18px;
-    }
-    .title {
-      font-size: 44px;
-    }
-  }
-
-  /* QR shrinks ONLY on true mobile */
-  @media (max-width: 520px) {
-    .title {
-      font-size: 42px;
-    }
-    .detailGrid {
-      grid-template-columns: 1fr;
-    }
-    .valueRight {
-      font-weight: 600;
-    }
-
-    .qrOuter {
-      right: 16px;
-      top: 135px;
-      width: 102px;
-      height: 102px;
-      border-radius: 7px;
-    }
-
-    .qrImg {
-      width: 86px;
-      height: 86px;
-      border-radius: 0px;
-    }
-  }
+}
 `;
