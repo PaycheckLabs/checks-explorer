@@ -220,10 +220,22 @@ export default function PaymentPreview() {
   }, [musdBal, decimals, symbol]);
 
   const polText = useMemo(() => {
-    const v = polBal.data?.formatted;
-    const s = polBal.data?.symbol ?? "POL";
-    if (!v) return "—";
-    return `${Number(v).toFixed(4)} ${s}`;
+    if (!polBal.data) return "—";
+
+    const polSymbol = polBal.data.symbol ?? "POL";
+
+    try {
+      const formatted = formatUnits(polBal.data.value, polBal.data.decimals);
+      const numeric = Number(formatted);
+
+      if (!Number.isFinite(numeric)) {
+        return `— ${polSymbol}`;
+      }
+
+      return `${numeric.toFixed(4)} ${polSymbol}`;
+    } catch {
+      return `— ${polSymbol}`;
+    }
   }, [polBal.data]);
 
   const claimableAtUnix = useMemo(() => {
@@ -235,7 +247,7 @@ export default function PaymentPreview() {
     return BigInt(Math.floor(ms / 1000));
   }, [draft]);
 
-  const canMint = Boolean(draft) && Boolean(isConnected) && chainId === AMOY_CHAIN_ID;
+  const canMint = Boolean(draft);
 
   const needsFaucet = musdBal < totalUnits;
   const needsApprove = allowance < totalUnits;
