@@ -25,7 +25,7 @@ import {
 type Draft = {
   type: "payment" | "vesting" | "staking";
   title: string;
-  memo: string;
+  memo: string; // <= 160 bytes
   amount: string; // human input
   recipient: string;
   claimableAtMode: "instant" | "postdated";
@@ -33,11 +33,19 @@ type Draft = {
   serial?: string; // generated only at mint time
 };
 
-type Stage = "idle" | "faucet" | "approve" | "mint" | "success" | "error";
+type Stage =
+  | "idle"
+  | "connecting"
+  | "switching"
+  | "faucet"
+  | "approve"
+  | "mint"
+  | "success"
+  | "error";
 
 const DRAFT_KEY = "checks_testnet_draft_v1";
 
-// 0.05% = 5 bps
+// 0.05% = 5 bps (estimate only for now)
 const PLATFORM_FEE_BPS = 5n;
 const BPS_DENOM = 10_000n;
 
@@ -56,10 +64,10 @@ function randInt(min: number, max: number) {
 function randChar(set: string) {
   return set[randInt(0, set.length - 1)];
 }
-// Format: AAA-1234BB-CC12 (no I/O to reduce confusion)
+// Format: AAA-1234BB-CC12 (no I/O, no 0/1)
 function generateSerial(): string {
-  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-  const digits = "0123456789";
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // excludes I and O
+  const digits = "23456789"; // excludes 0 and 1
   const a = `${randChar(letters)}${randChar(letters)}${randChar(letters)}`;
   const b = `${randChar(digits)}${randChar(digits)}${randChar(digits)}${randChar(digits)}`;
   const c = `${randChar(letters)}${randChar(letters)}`;
@@ -77,9 +85,18 @@ export default function PaymentPreview() {
   // wallet
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const { connect, connectors, isPending: isConnecting } = useConnect();
+
+  // useConnect: we’ll use connectAsync when available for a clean one-button flow
+  const connectHook = useConnect() as unknown as {
+    connect: (args: any) => void;
+    connectAsync?: (args: any) => Promise<any>;
+    connectors: any[];
+    isPending: boolean;
+  };
   const { disconnect } = useDisconnect();
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
+
+  const { connect, connectAsync, connectors, isPending: isConnecting } = connectHook;
 
   // NOTE: Cast to keep TS strict + wagmi v3 happy in Vercel builds.
   const { writeContractAsync } = useWriteContract() as unknown as {
@@ -91,7 +108,7 @@ export default function PaymentPreview() {
 
   // Narrow constants to wagmi/viem-friendly types
   const MUSD = MUSD_ADDRESS as Address;
-  const PCHK = PCHK_ADDRESS as Address;
+  const PCHK = PCHK_ADDRESS as Address; // canonical PaymentChecks address via alias
   const MUSD_ABI_T = MUSD_ABI as unknown as Abi;
   const PCHK_ABI_T = PCHK_ABI as unknown as Abi;
 
@@ -109,7 +126,7 @@ export default function PaymentPreview() {
   const decimals = Number(decimalsRes.data ?? 6);
   const symbol = (symbolRes.data as string | undefined) ?? "mUSD";
 
-  // balances + allowance
+  // balances + allowance (hook-based UI display; mint pipeline uses fresh reads)
   const musdBalRes = useReadContract({
     address: MUSD,
     abi: MUSD_ABI_T,
@@ -170,8 +187,6 @@ export default function PaymentPreview() {
     return (amountUnits * PLATFORM_FEE_BPS) / BPS_DENOM;
   }, [amountUnits]);
 
-  // NOTE (important): UI displays fee now; on-chain fee transfer is a later brick in the checks repo.
-  // For now, mint still uses `amountUnits` as the escrowed collateral amount.
   const musdBal = (musdBalRes.data as bigint | undefined) ?? 0n;
   const allowance = (allowanceRes.data as bigint | undefined) ?? 0n;
 
@@ -181,7 +196,7 @@ export default function PaymentPreview() {
   const claimText = useMemo(() => {
     if (!draft) return "—";
     if (draft.claimableAtMode === "instant") return "Instant Claim";
-    return draft.claimableAt ? `Post-dated` : "Post-dated";
+    return "Post-dated";
   }, [draft]);
 
   const claimDetail = useMemo(() => {
@@ -230,90 +245,188 @@ export default function PaymentPreview() {
     return serial;
   }
 
+  function getConnector() {
+    return connectors?.find((c) => c.id === "injected") ?? connectors?.[0];
+  }
+
+  async function ensureConnected(): Promise<Address | null> {
+    if (isConnected && address) return address as Address;
+
+    const connector = getConnector();
+    if (!connector) {
+      setError("No wallet connector found. Please install MetaMask or use an injected wallet.");
+      setStage("error");
+      return null;
+    }
+
+    setStage("connecting");
+    try {
+      if (connectAsync) {
+        const res = await connectAsync({ connector });
+        const acct = (res as any)?.accounts?.[0] ?? (res as any)?.account;
+        if (acct) return acct as Address;
+      } else {
+        // Fallback (less deterministic): trigger connect, then rely on wagmi state update
+        connect({ connector });
+        // give wagmi a tick
+        await new Promise((r) => setTimeout(r, 600));
+        if (address) return address as Address;
+      }
+
+      setError("Wallet connected, but address was not returned. Please try again.");
+      setStage("error");
+      return null;
+    } catch (e: any) {
+      setError(e?.shortMessage || e?.message || "Wallet connection failed.");
+      setStage("error");
+      return null;
+    }
+  }
+
   async function ensureAmoy(): Promise<boolean> {
-    if (!isConnected) return false;
     if (chainId === AMOY_CHAIN_ID) return true;
+
+    setStage("switching");
     try {
       await switchChainAsync({ chainId: AMOY_CHAIN_ID });
       return true;
     } catch (e: any) {
-      setError(e?.message || "Failed to switch to Polygon Amoy.");
+      setError(e?.shortMessage || e?.message || "Failed to switch to Polygon Amoy.");
+      setStage("error");
       return false;
     }
   }
 
-  async function getTestMusd() {
-    setError(null);
-    if (!isConnected) return setError("Connect your wallet first.");
-    const ok = await ensureAmoy();
-    if (!ok) return;
-    if (!publicClient) return setError("Public client not ready.");
+  async function readBalance(owner: Address): Promise<bigint> {
+  if (!publicClient) return 0n;
 
+  // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
+  const pc = publicClient as any;
+
+  return (await pc.readContract({
+    address: MUSD,
+    abi: MUSD_ABI_T,
+    functionName: "balanceOf",
+    args: [owner],
+  })) as bigint;
+}
+
+async function readAllowance(owner: Address): Promise<bigint> {
+  if (!publicClient) return 0n;
+
+  // Type workaround for Next/Vercel typechecking on wagmi publicClient generics
+  const pc = publicClient as any;
+
+  return (await pc.readContract({
+    address: MUSD,
+    abi: MUSD_ABI_T,
+    functionName: "allowance",
+    args: [owner, PCHK],
+  })) as bigint;
+}
+
+  async function faucetIfNeeded(owner: Address): Promise<boolean> {
+    const bal = await readBalance(owner);
+    if (bal >= amountUnits) return true;
+
+    // Faucet enough to cover 10x requested amount (min 1,000 mUSD)
+    const desired = amountUnits > 0n ? amountUnits * 10n : parseUnits("1000", decimals);
+
+    setStage("faucet");
     try {
-      setStage("faucet");
-      // Faucet enough to cover 10x requested amount (min 1,000 mUSD)
-      const desired = amountUnits > 0n ? amountUnits * 10n : parseUnits("1000", decimals);
       const hash = await writeContractAsync({
         address: MUSD,
         abi: MUSD_ABI_T,
         functionName: "faucet",
         args: [desired],
       });
-      await publicClient.waitForTransactionReceipt({ hash });
-      setStage("idle");
+      await publicClient!.waitForTransactionReceipt({ hash });
+      const bal2 = await readBalance(owner);
+      if (bal2 < amountUnits) {
+        setError(`Faucet completed, but balance is still low. Please try again.`);
+        setStage("error");
+        return false;
+      }
+      return true;
     } catch (e: any) {
-      setStage("error");
       setError(e?.shortMessage || e?.message || "mUSD faucet failed.");
+      setStage("error");
+      return false;
     }
   }
 
-  async function approveMusd() {
-    setError(null);
-    if (!isConnected) return setError("Connect your wallet first.");
-    const ok = await ensureAmoy();
-    if (!ok) return;
-    if (!publicClient) return setError("Public client not ready.");
+  async function approveIfNeeded(owner: Address): Promise<boolean> {
+    const allow = await readAllowance(owner);
+    if (allow >= amountUnits) return true;
 
+    setStage("approve");
     try {
-      setStage("approve");
       const hash = await writeContractAsync({
         address: MUSD,
         abi: MUSD_ABI_T,
         functionName: "approve",
         args: [PCHK, MAX_UINT256],
       });
-      await publicClient.waitForTransactionReceipt({ hash });
-      setStage("idle");
+      await publicClient!.waitForTransactionReceipt({ hash });
+      const allow2 = await readAllowance(owner);
+      if (allow2 < amountUnits) {
+        setError(`Approval completed, but allowance is still low. Please try again.`);
+        setStage("error");
+        return false;
+      }
+      return true;
     } catch (e: any) {
-      setStage("error");
       setError(e?.shortMessage || e?.message || "Approve failed.");
+      setStage("error");
+      return false;
     }
   }
 
   async function mintNow() {
     setError(null);
+    setMintHash(null);
 
     const v = validateDraftNoSerial();
-    if (v) return setError(v);
+    if (v) {
+      setError(v);
+      setStage("error");
+      return;
+    }
 
-    if (!isConnected) return setError("Connect your wallet first.");
+    // 1) Connect wallet
+    const owner = await ensureConnected();
+    if (!owner) return;
+
+    // 2) Switch network
     const ok = await ensureAmoy();
     if (!ok) return;
-    if (!publicClient) return setError("Public client not ready.");
 
-    if (!hasEnough) return setError(`Not enough ${symbol}. Use “Get test ${symbol}” first.`);
-    if (!hasAllowance) return setError(`Approval needed. Click “Approve ${symbol}” first.`);
+    // 3) Ensure public client (after network)
+    if (!publicClient) {
+      setError("Public client not ready.");
+      setStage("error");
+      return;
+    }
 
+    // 4) Faucet if needed (testnet only)
+    if (!(await faucetIfNeeded(owner))) return;
+
+    // 5) Approve if needed
+    if (!(await approveIfNeeded(owner))) return;
+
+    // 6) Generate serial at mint time
     let serial: string;
     try {
       serial = ensureSerial();
     } catch (e: any) {
-      return setError(e?.message || "Failed to generate serial.");
+      setError(e?.message || "Failed to generate serial.");
+      setStage("error");
+      return;
     }
 
+    // 7) Mint
+    setStage("mint");
     try {
-      setStage("mint");
-
       const serialB32 = bytes32FromString(serial);
       const titleB32 = bytes32FromString(draft!.title.trim());
       const claimableAt =
@@ -337,13 +450,35 @@ export default function PaymentPreview() {
 
       setMintHash(hash);
       await publicClient.waitForTransactionReceipt({ hash });
-      setStage("success");
 
+      setStage("success");
       window.location.href = `https://explorer.checks.xyz/testnet/${serial}`;
     } catch (e: any) {
       setStage("error");
       setError(e?.shortMessage || e?.message || "Mint failed.");
     }
+  }
+
+  async function getTestMusdManual() {
+    setError(null);
+    if (!publicClient) return setError("Public client not ready.");
+    const owner = await ensureConnected();
+    if (!owner) return;
+    const ok = await ensureAmoy();
+    if (!ok) return;
+    await faucetIfNeeded(owner);
+    if (stage !== "error") setStage("idle");
+  }
+
+  async function approveMusdManual() {
+    setError(null);
+    if (!publicClient) return setError("Public client not ready.");
+    const owner = await ensureConnected();
+    if (!owner) return;
+    const ok = await ensureAmoy();
+    if (!ok) return;
+    await approveIfNeeded(owner);
+    if (stage !== "error") setStage("idle");
   }
 
   const polText = useMemo(() => {
@@ -365,8 +500,50 @@ export default function PaymentPreview() {
     return `${formatUnits(platformFeeUnits, decimals)} ${symbol}`;
   }, [platformFeeUnits, decimals, symbol]);
 
-  const connectConnector = connectors?.find((c) => c.id === "injected") ?? connectors?.[0];
-  const busy = stage === "faucet" || stage === "approve" || stage === "mint";
+  const busy =
+    stage === "connecting" ||
+    stage === "switching" ||
+    stage === "faucet" ||
+    stage === "approve" ||
+    stage === "mint";
+
+  const progressTitle = useMemo(() => {
+    switch (stage) {
+      case "connecting":
+        return "Connecting wallet…";
+      case "switching":
+        return "Switching network…";
+      case "faucet":
+        return `Getting test ${symbol}…`;
+      case "approve":
+        return `Waiting for ${symbol} approval…`;
+      case "mint":
+        return "Minting check…";
+      case "success":
+        return "Mint confirmed. Redirecting…";
+      default:
+        return "";
+    }
+  }, [stage, symbol]);
+
+  const progressSub = useMemo(() => {
+    switch (stage) {
+      case "connecting":
+        return "Approve the connection in your wallet.";
+      case "switching":
+        return "Approve the network switch to Polygon Amoy (80002).";
+      case "faucet":
+        return "Requesting test collateral from MockUSD faucet.";
+      case "approve":
+        return "Approve token spending so the check can be funded.";
+      case "mint":
+        return "Confirm the mint transaction in your wallet.";
+      case "success":
+        return "Taking you to the serial page.";
+      default:
+        return "";
+    }
+  }, [stage]);
 
   return (
     <>
@@ -390,7 +567,7 @@ export default function PaymentPreview() {
           </div>
 
           <div className="right">
-            <button className="btnPrimary" onClick={mintNow} disabled={!supported || busy || !draft}>
+            <button className="btnPrimary" onClick={mintNow} disabled={busy || !draft}>
               {stage === "mint" ? "Minting…" : "Mint Now ⚡"}
             </button>
           </div>
@@ -408,14 +585,22 @@ export default function PaymentPreview() {
                     <div className="tokenName">Mock USD</div>
                   </div>
                   <div className="amt">
-                    <div className="amtVal">{draft?.amount || "—"}&nbsp;{symbol}</div>
+                    <div className="amtVal">
+                      {draft?.amount || "—"}&nbsp;{symbol}
+                    </div>
                   </div>
                 </div>
 
                 <div className="ccTitle">Testnet Payment Check</div>
-                <div className="ccChain">Minted on <span className="chainDot">⟠</span> Polygon Amoy</div>
+                <div className="ccChain">
+                  Minted on <span className="chainDot">⟠</span> Polygon Amoy
+                </div>
 
                 <div className="ccGrid">
+                  <div className="row">
+                    <div className="k">Check Name</div>
+                    <div className="v">{draft?.title?.trim() || "—"}</div>
+                  </div>
                   <div className="row">
                     <div className="k">Type</div>
                     <div className="v">Payment</div>
@@ -436,6 +621,13 @@ export default function PaymentPreview() {
                     <div className="k">Conditions</div>
                     <div className="v">{claimText}</div>
                   </div>
+
+                  {draft?.memo?.trim() ? (
+                    <div className="row">
+                      <div className="k">Memo</div>
+                      <div className="v">{draft.memo.trim()}</div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="ccFooter">
@@ -445,7 +637,7 @@ export default function PaymentPreview() {
 
               {error ? <div className="error">{error}</div> : null}
 
-              {/* Utility controls (keep for now; later we’ll fold into Mint Now smart flow) */}
+              {/* Utility controls (debug helpers) */}
               <div className="tools">
                 <div className="toolsTitle">Wallet & Testnet Tools</div>
 
@@ -473,12 +665,8 @@ export default function PaymentPreview() {
 
                 <div className="btnRow">
                   {!isConnected ? (
-                    <button
-                      className="btnGhost"
-                      onClick={() => connectConnector && connect({ connector: connectConnector })}
-                      disabled={!connectConnector || isConnecting}
-                    >
-                      {isConnecting ? "Connecting…" : "Connect Wallet"}
+                    <button className="btnGhost" onClick={() => connect({ connector: getConnector() })} disabled={busy}>
+                      Connect Wallet
                     </button>
                   ) : (
                     <button className="btnGhost" onClick={() => disconnect()} disabled={busy}>
@@ -496,12 +684,12 @@ export default function PaymentPreview() {
                     </button>
                   ) : null}
 
-                  <button className="btnGhost" onClick={getTestMusd} disabled={!supported || busy}>
-                    {stage === "faucet" ? `Getting ${symbol}…` : `Get test ${symbol}`}
+                  <button className="btnGhost" onClick={getTestMusdManual} disabled={busy || amountUnits <= 0n}>
+                    Get test {symbol}
                   </button>
 
-                  <button className="btnGhost" onClick={approveMusd} disabled={!supported || busy}>
-                    {stage === "approve" ? "Approving…" : `Approve ${symbol}`}
+                  <button className="btnGhost" onClick={approveMusdManual} disabled={busy || amountUnits <= 0n}>
+                    Approve {symbol}
                   </button>
                 </div>
 
@@ -517,7 +705,9 @@ export default function PaymentPreview() {
 
               <div className="kv">
                 <div className="k">Collateral Amount</div>
-                <div className="v">{draft?.amount || "—"} {symbol}</div>
+                <div className="v">
+                  {draft?.amount || "—"} {symbol}
+                </div>
               </div>
 
               <div className="kv">
@@ -555,12 +745,12 @@ export default function PaymentPreview() {
               ) : null}
 
               <div className="note">
-                Platform fee is charged in {symbol}. On testnet it will be sent to the Checks Dev Wallet (configured in
-                the contract). Serial + QR are generated after mint.
+                Fee shown is an estimate only (0.05%). On-chain fee collection is a planned next brick. Serial + QR are
+                generated after mint.
               </div>
 
               <div className="sideActions">
-                <button className="btnPrimary" onClick={mintNow} disabled={!supported || busy || !draft}>
+                <button className="btnPrimary" onClick={mintNow} disabled={busy || !draft}>
                   {stage === "mint" ? "Minting…" : "Mint Now ⚡"}
                 </button>
                 <Link className="sideLink" href="/testnet/payment/mint">
@@ -575,14 +765,25 @@ export default function PaymentPreview() {
           <div className="muted">Powered by Checks</div>
           <div className="muted">Tip: QR + Serial appear after minting.</div>
         </footer>
+
+        {/* Progress overlay */}
+        {(busy || stage === "success") && (
+          <div className="overlay" role="dialog" aria-modal="true" aria-label="Transaction progress">
+            <div className="modal">
+              <div className="modalTitle">{progressTitle}</div>
+              <div className="modalSub">{progressSub}</div>
+              {mintHash ? <div className="modalHash mono">Tx: {mintHash}</div> : null}
+              <div className="modalNote">Do not close this tab while your wallet is processing.</div>
+            </div>
+          </div>
+        )}
       </div>
 
       <style jsx>{`
         .page {
           min-height: 100vh;
-          background: radial-gradient(1200px 600px at 20% 0%, rgba(255,255,255,0.08), transparent 60%),
-            radial-gradient(900px 500px at 90% 20%, rgba(255,255,255,0.06), transparent 55%),
-            #0b0f14;
+          background: radial-gradient(1200px 600px at 20% 0%, rgba(255, 255, 255, 0.08), transparent 60%),
+            radial-gradient(900px 500px at 90% 20%, rgba(255, 255, 255, 0.06), transparent 55%), #0b0f14;
           color: #e5e7eb;
           font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
           padding: 28px 22px 40px;
@@ -635,9 +836,9 @@ export default function PaymentPreview() {
         }
 
         .canvas {
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 18px;
-          background: rgba(255,255,255,0.03);
+          background: rgba(255, 255, 255, 0.03);
           padding: 18px;
           min-height: 520px;
         }
@@ -654,12 +855,11 @@ export default function PaymentPreview() {
           width: min(680px, 100%);
           border-radius: 14px;
           padding: 18px 18px 14px;
-          background:
-            radial-gradient(900px 420px at 15% 10%, rgba(255,255,255,0.12), transparent 60%),
-            radial-gradient(900px 420px at 85% 60%, rgba(255,255,255,0.10), transparent 55%),
-            rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.10);
-          box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+          background: radial-gradient(900px 420px at 15% 10%, rgba(255, 255, 255, 0.12), transparent 60%),
+            radial-gradient(900px 420px at 85% 60%, rgba(255, 255, 255, 0.1), transparent 55%),
+            rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
         }
 
         .ccTop {
@@ -682,8 +882,8 @@ export default function PaymentPreview() {
           display: grid;
           place-items: center;
           font-weight: 900;
-          background: rgba(59,130,246,0.35);
-          border: 1px solid rgba(59,130,246,0.55);
+          background: rgba(59, 130, 246, 0.35);
+          border: 1px solid rgba(59, 130, 246, 0.55);
         }
         .tokenName {
           font-size: 18px;
@@ -721,7 +921,7 @@ export default function PaymentPreview() {
           display: grid;
           gap: 12px;
           padding-top: 16px;
-          border-top: 1px solid rgba(255,255,255,0.08);
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
         }
         .row {
           display: flex;
@@ -733,12 +933,17 @@ export default function PaymentPreview() {
           color: #9ca3af;
           font-weight: 800;
           font-size: 14px;
+          min-width: 120px;
         }
         .v {
           font-weight: 900;
           font-size: 16px;
           color: #e5e7eb;
           text-align: right;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 420px;
         }
         .mono {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
@@ -748,7 +953,7 @@ export default function PaymentPreview() {
         .ccFooter {
           margin-top: 18px;
           padding-top: 14px;
-          border-top: 1px solid rgba(255,255,255,0.08);
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
           color: #cbd5e1;
           font-weight: 800;
           display: flex;
@@ -763,8 +968,8 @@ export default function PaymentPreview() {
         .tools {
           width: min(680px, 100%);
           border-radius: 14px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(0,0,0,0.25);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(0, 0, 0, 0.25);
           padding: 14px;
         }
         .toolsTitle {
@@ -777,7 +982,7 @@ export default function PaymentPreview() {
           justify-content: space-between;
           gap: 12px;
           padding: 8px 0;
-          border-top: 1px solid rgba(255,255,255,0.06);
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
         .toolsRow:first-of-type {
           border-top: none;
@@ -803,8 +1008,8 @@ export default function PaymentPreview() {
         }
 
         .btnPrimary {
-          background: linear-gradient(180deg, rgba(56,189,248,0.95), rgba(14,165,233,0.90));
-          border: 1px solid rgba(56,189,248,0.55);
+          background: linear-gradient(180deg, rgba(56, 189, 248, 0.95), rgba(14, 165, 233, 0.9));
+          border: 1px solid rgba(56, 189, 248, 0.55);
           color: #001018;
           font-weight: 900;
           border-radius: 12px;
@@ -818,8 +1023,8 @@ export default function PaymentPreview() {
         }
 
         .btnGhost {
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.10);
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.1);
           color: #e5e7eb;
           font-weight: 900;
           border-radius: 12px;
@@ -841,8 +1046,8 @@ export default function PaymentPreview() {
           width: min(680px, 100%);
           border-radius: 12px;
           padding: 10px 12px;
-          border: 1px solid rgba(239,68,68,0.28);
-          background: rgba(239,68,68,0.10);
+          border: 1px solid rgba(239, 68, 68, 0.28);
+          background: rgba(239, 68, 68, 0.1);
           color: #fecaca;
           font-weight: 900;
         }
@@ -852,9 +1057,9 @@ export default function PaymentPreview() {
           top: 18px;
         }
         .panel {
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 18px;
-          background: rgba(255,255,255,0.03);
+          background: rgba(255, 255, 255, 0.03);
           padding: 16px;
         }
         .panelTitle {
@@ -867,14 +1072,14 @@ export default function PaymentPreview() {
           justify-content: space-between;
           gap: 12px;
           padding: 10px 0;
-          border-top: 1px solid rgba(255,255,255,0.06);
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
         .kv:first-of-type {
           border-top: none;
         }
         .divider {
           height: 1px;
-          background: rgba(255,255,255,0.08);
+          background: rgba(255, 255, 255, 0.08);
           margin: 12px 0;
         }
         .note {
@@ -906,12 +1111,51 @@ export default function PaymentPreview() {
           gap: 12px;
           flex-wrap: wrap;
           padding-top: 14px;
-          border-top: 1px solid rgba(255,255,255,0.06);
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
         }
         .muted {
           color: #9ca3af;
           font-weight: 800;
           font-size: 13px;
+        }
+
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: grid;
+          place-items: center;
+          padding: 20px;
+          z-index: 50;
+        }
+        .modal {
+          width: min(520px, 100%);
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(15, 23, 42, 0.92);
+          padding: 16px;
+          box-shadow: 0 22px 80px rgba(0, 0, 0, 0.6);
+        }
+        .modalTitle {
+          font-weight: 900;
+          font-size: 16px;
+          margin-bottom: 6px;
+        }
+        .modalSub {
+          color: #cbd5e1;
+          font-weight: 800;
+          font-size: 13px;
+          line-height: 1.35;
+        }
+        .modalHash {
+          margin-top: 10px;
+          color: #9ca3af;
+          font-size: 12px;
+        }
+        .modalNote {
+          margin-top: 10px;
+          color: #9ca3af;
+          font-size: 12px;
         }
 
         @media (max-width: 980px) {
