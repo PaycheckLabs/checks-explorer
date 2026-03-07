@@ -452,7 +452,14 @@ async function readAllowance(owner: Address): Promise<bigint> {
       await publicClient.waitForTransactionReceipt({ hash });
 
       setStage("success");
-      window.location.href = `https://explorer.checks.xyz/testnet/${serial}`;
+
+      // Route to local success screen first (better UX + fallback)
+      try {
+        const qs = new URLSearchParams({ serial, tx: hash }).toString();
+        window.location.href = `/testnet/payment/success?${qs}`;
+      } catch {
+        window.location.href = `/testnet/${serial}`;
+      }
     } catch (e: any) {
       setStage("error");
       setError(e?.shortMessage || e?.message || "Mint failed.");
