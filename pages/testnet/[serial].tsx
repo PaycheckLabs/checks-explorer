@@ -292,14 +292,12 @@ function ExplorerTopbar() {
 function RouteHeader({
   serial,
   title,
-  metaLine,
   onCopyLink,
   copyLabel,
   exploreHref,
 }: {
   serial: string;
   title: string;
-  metaLine: string;
   onCopyLink?: () => void;
   copyLabel?: string;
   exploreHref?: string;
@@ -316,7 +314,6 @@ function RouteHeader({
         <div className="routeHeaderCopy">
           <h1 className="title">{serial}</h1>
           <div className="checkName">{title}</div>
-          <div className="metaLine">{metaLine}</div>
         </div>
 
         <div className="routeHeaderActions">
@@ -448,10 +445,9 @@ export default function TestnetSerialPage(props: PageProps) {
             <RouteHeader
               serial="Invalid Serial"
               title="Checks Explorer"
-              metaLine="This serial does not match the expected Checks format."
             />
 
-            <div className="panel">
+            <div className="panel invalidPanel">
               <div className="sectionTitle">Serial Review</div>
               <div className="dataGrid single">
                 <DataCell label="Serial" value={serial} mono />
@@ -490,7 +486,6 @@ export default function TestnetSerialPage(props: PageProps) {
             <RouteHeader
               serial={serial}
               title={checkTitle}
-              metaLine={`${networkLabel} • Mock USD • ${record.claimableAt ? "Scheduled" : "Instant Claim"}`}
               exploreHref={scanAddr(record.contract)}
               onCopyLink={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
               copyLabel={copiedKey === "share" ? "Copied Link" : "Copy Link"}
@@ -507,10 +502,7 @@ export default function TestnetSerialPage(props: PageProps) {
                     <DataCell label="Conditions" value={record.claimableAt ? conditions : "Instant Claim"} />
                     <DataCell label="Network" value={networkLabel} />
                     <DataCell label="Initial Collateral" value={record.initialCollateral || "Not yet tracked"} />
-                    <DataCell
-                      label="Remaining Collateral"
-                      value={record.remainingCollateral || "Not yet tracked"}
-                    />
+                    <DataCell label="Remaining Collateral" value={record.remainingCollateral || "Not yet tracked"} />
                     <DataCell label="Serial" value={serial} mono />
                     <DataCell label="Token ID" value={String(record.tokenId)} />
                     <DataCell label="Contract" value={record.contract} mono full />
@@ -520,9 +512,10 @@ export default function TestnetSerialPage(props: PageProps) {
                 <div className="heroRight">
                   <div className="sectionTitle">Check Preview</div>
                   <CheckPreview serial={serial} />
-                  <div className="panel memoPanel">
-                    <div className="sectionTitle sectionTitleSmall">Memo</div>
-                    <div className="noteBox">
+
+                  <div className="memoWrap">
+                    <div className="sectionTitle">Memo</div>
+                    <div className="memoText">
                       {record.memo || "No memo has been added for this tracked check yet."}
                     </div>
                   </div>
@@ -541,13 +534,6 @@ export default function TestnetSerialPage(props: PageProps) {
                   {!record.mintTx && !record.transferTx && !record.redeemTx && !record.voidTx ? (
                     <div className="emptyState">No transaction references have been added for this tracked check yet.</div>
                   ) : null}
-                </div>
-              </div>
-
-              <div className="panel">
-                <div className="sectionTitle">Share</div>
-                <div className="dataGrid single">
-                  <DataCell label="URL" value={`${origin}/testnet/${serial}`} mono full />
                 </div>
               </div>
 
@@ -789,7 +775,6 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
         <RouteHeader
           serial={serial}
           title={checkTitle}
-          metaLine={`${AMOY_NAME} • ${vm?.symbol || "Token"} • ${Number(vm?.claimableAt || 0n) ? "Scheduled" : "Instant Claim"}`}
           exploreHref={vm ? scanAddr(vm.contract) : undefined}
           onCopyLink={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
           copyLabel={copiedKey === "share" ? "Copied Link" : "Copy Link"}
@@ -829,9 +814,9 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
               <div className="sectionTitle">Check Preview</div>
               <CheckPreview serial={serial} allowFallback />
 
-              <div className="panel memoPanel">
-                <div className="sectionTitle sectionTitleSmall">Memo</div>
-                <div className="noteBox">
+              <div className="memoWrap">
+                <div className="sectionTitle">Memo</div>
+                <div className="memoText">
                   {vm?.memo || "No memo was found on-chain for this check."}
                 </div>
               </div>
@@ -859,13 +844,6 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
           </div>
 
           <div className="panel">
-            <div className="sectionTitle">Share</div>
-            <div className="dataGrid single">
-              <DataCell label="URL" value={`${origin}/testnet/${serial}`} mono full />
-            </div>
-          </div>
-
-          <div className="panel">
             <div className="sectionTitle">Explorer Notes</div>
             <div className="noteBox">
               Live on-chain lookup is enabled for supported Payment Checks deployments on Polygon Amoy. Visual polish and layout alignment are still being refined on this explorer page.
@@ -879,8 +857,14 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
 
 const styles = `
 :global(html),
+:global(body),
+:global(#__next) {
+  min-height: 100%;
+  background: #101012 !important;
+}
+
 :global(body) {
-  background: #101012;
+  margin: 0;
 }
 
 .page {
@@ -1014,14 +998,6 @@ const styles = `
   letter-spacing: -0.02em;
 }
 
-.metaLine {
-  margin-top: 10px;
-  color: #9aa4b3;
-  font-size: 15px;
-  line-height: 1.45;
-  font-weight: 400;
-}
-
 .routeHeaderActions {
   display: flex;
   align-items: center;
@@ -1058,14 +1034,18 @@ const styles = `
   box-shadow: 0 24px 50px rgba(0, 0, 0, 0.22);
 }
 
+.invalidPanel {
+  padding: 18px;
+}
+
 .heroPanel {
   padding: 18px;
 }
 
 .heroGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 420px);
-  gap: 22px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(380px, 500px);
+  gap: 20px;
   align-items: start;
 }
 
@@ -1079,18 +1059,13 @@ const styles = `
   line-height: 1.2;
   color: #ffffff;
   font-weight: 500;
-  margin-bottom: 16px;
-}
-
-.sectionTitleSmall {
-  font-size: 20px;
   margin-bottom: 14px;
 }
 
 .dataGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .dataGrid.single {
@@ -1098,11 +1073,11 @@ const styles = `
 }
 
 .dataCell {
-  border-radius: 16px;
-  padding: 16px 16px;
+  border-radius: 14px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  min-height: 98px;
+  min-height: 72px;
 }
 
 .dataCell.full {
@@ -1117,13 +1092,13 @@ const styles = `
   letter-spacing: 0.08em;
   color: #6f7b8c;
   font-weight: 500;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .dataValue {
   color: #f2f5fa;
-  font-size: 19px;
-  line-height: 1.4;
+  font-size: 17px;
+  line-height: 1.35;
   font-weight: 400;
   word-break: break-word;
 }
@@ -1133,8 +1108,8 @@ const styles = `
 }
 
 .checkFrame {
-  border-radius: 18px;
-  padding: 14px;
+  border-radius: 16px;
+  padding: 12px;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -1172,14 +1147,24 @@ const styles = `
   border-radius: 0;
 }
 
-.memoPanel {
+.memoWrap {
   margin-top: 16px;
-  padding: 16px;
+}
+
+.memoText {
+  color: #f2f5fa;
+  font-size: 17px;
+  line-height: 1.5;
+  font-weight: 400;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  padding: 14px;
 }
 
 .lowerGrid {
   display: grid;
-  grid-template-columns: 1.6fr 0.9fr 0.9fr;
+  grid-template-columns: 1fr 1fr;
   gap: 18px;
   margin-top: 18px;
 }
@@ -1202,7 +1187,7 @@ const styles = `
 }
 
 .txLabel {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1214,7 +1199,7 @@ const styles = `
 .hashLink {
   color: #63c5ee;
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   display: block;
   word-break: break-all;
@@ -1231,8 +1216,8 @@ const styles = `
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.06);
   color: #c0c8d2;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 17px;
+  line-height: 1.5;
   font-weight: 400;
 }
 
@@ -1276,8 +1261,11 @@ const styles = `
     grid-template-columns: 1fr;
   }
 
-  .dataValue {
-    font-size: 18px;
+  .dataValue,
+  .memoText,
+  .noteBox,
+  .emptyState {
+    font-size: 16px;
   }
 }
 
