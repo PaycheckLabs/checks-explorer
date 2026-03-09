@@ -82,6 +82,8 @@ type DeploymentConfig = {
   fromBlock: bigint;
 };
 
+type StatusTone = "success" | "info" | "warning" | "danger" | "muted";
+
 const DEPLOYMENTS: DeploymentConfig[] = [
   {
     label: "Payment Checks",
@@ -142,7 +144,7 @@ function formatDateTime(ts?: number | bigint) {
   return new Date(n * 1000).toLocaleString();
 }
 
-function getStatusMeta(label?: string) {
+function getStatusMeta(label?: string): { label: string; tone: StatusTone } {
   const normalized = (label || "").toLowerCase();
 
   if (normalized === "active") return { label: "Active", tone: "success" };
@@ -296,7 +298,7 @@ function StatusPill({
   tone,
 }: {
   label: string;
-  tone: "success" | "info" | "warning" | "danger" | "muted";
+  tone: StatusTone;
 }) {
   return <span className={`pill ${tone}`}>{label}</span>;
 }
@@ -317,7 +319,7 @@ function RouteHeader({
   onCopyLink?: () => void;
   copyLabel?: string;
   statusLabel: string;
-  statusTone: "success" | "info" | "warning" | "danger" | "muted";
+  statusTone: StatusTone;
   exploreHref?: string;
 }) {
   return (
