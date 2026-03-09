@@ -1135,8 +1135,8 @@ const styles = `
 
 .qrOuter {
   position: absolute;
-  right: 24px;
-  top: 139px;
+  right: 23px;
+  top: 141px;
   width: 113px;
   height: 113px;
   background: rgba(255, 255, 255, 0.96);
