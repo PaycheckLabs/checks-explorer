@@ -132,12 +132,6 @@ function serialToBytes32(serial: string): Hex {
   return stringToHex(serial, { size: 32 });
 }
 
-function shortAddress(value?: string) {
-  if (!value) return "Not available";
-  if (value.length < 12) return value;
-  return `${value.slice(0, 6)}...${value.slice(-4)}`;
-}
-
 function formatDateTime(ts?: number | bigint) {
   const n = typeof ts === "bigint" ? Number(ts) : ts;
   if (!n) return "Not available";
@@ -280,10 +274,12 @@ function ExplorerTopbar() {
   return (
     <div className="topbar">
       <Link href="/testnet" className="brandLink">
-        <div className="brandMarkWrap">
-          <div className="brandMark">C</div>
-        </div>
-        <div className="brandText">Checks Explorer</div>
+        <img
+          src="/checks-explorer-logo.png"
+          alt="Checks Explorer"
+          className="brandLogo"
+          draggable={false}
+        />
       </Link>
 
       <div className="topbarRight">
@@ -293,24 +289,12 @@ function ExplorerTopbar() {
   );
 }
 
-function StatusPill({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: StatusTone;
-}) {
-  return <span className={`pill ${tone}`}>{label}</span>;
-}
-
 function RouteHeader({
   serial,
   title,
   metaLine,
   onCopyLink,
   copyLabel,
-  statusLabel,
-  statusTone,
   exploreHref,
 }: {
   serial: string;
@@ -318,8 +302,6 @@ function RouteHeader({
   metaLine: string;
   onCopyLink?: () => void;
   copyLabel?: string;
-  statusLabel: string;
-  statusTone: StatusTone;
   exploreHref?: string;
 }) {
   return (
@@ -345,12 +327,10 @@ function RouteHeader({
           ) : null}
 
           {onCopyLink ? (
-            <button className="headerBtn subtleHeaderBtn" onClick={onCopyLink} type="button">
+            <button className="headerBtn" onClick={onCopyLink} type="button">
               {copyLabel || "Copy Link"}
             </button>
           ) : null}
-
-          <StatusPill label={statusLabel} tone={statusTone} />
         </div>
       </div>
     </div>
@@ -401,42 +381,38 @@ function CheckPreview({
   allowFallback?: boolean;
 }) {
   return (
-    <div className="previewSurface">
-      <div className="previewLabel">Check Preview</div>
+    <div className="checkFrame">
+      <div className="checkBox">
+        <img
+          src={`/checks/testnet/${serial}.png`}
+          alt={`Check ${serial}`}
+          className="checkImg"
+          draggable={false}
+          onError={
+            allowFallback
+              ? (e) => {
+                  const t = e.currentTarget;
+                  if (t && !t.src.includes("/checks/blank.png")) t.src = "/checks/blank.png";
+                }
+              : undefined
+          }
+        />
 
-      <div className="checkFrame">
-        <div className="checkBox">
+        <div className="qrOuter">
           <img
-            src={`/checks/testnet/${serial}.png`}
-            alt={`Check ${serial}`}
-            className="checkImg"
+            src={`/qr/testnet/${serial}.png`}
+            alt={`QR for ${serial}`}
+            className="qrImg"
             draggable={false}
             onError={
               allowFallback
                 ? (e) => {
                     const t = e.currentTarget;
-                    if (t && !t.src.includes("/checks/blank.png")) t.src = "/checks/blank.png";
+                    if (t && !t.src.includes("/qr/blank.png")) t.src = "/qr/blank.png";
                   }
                 : undefined
             }
           />
-
-          <div className="qrOuter">
-            <img
-              src={`/qr/testnet/${serial}.png`}
-              alt={`QR for ${serial}`}
-              className="qrImg"
-              draggable={false}
-              onError={
-                allowFallback
-                  ? (e) => {
-                      const t = e.currentTarget;
-                      if (t && !t.src.includes("/qr/blank.png")) t.src = "/qr/blank.png";
-                    }
-                  : undefined
-              }
-            />
-          </div>
         </div>
       </div>
     </div>
@@ -473,8 +449,6 @@ export default function TestnetSerialPage(props: PageProps) {
               serial="Invalid Serial"
               title="Checks Explorer"
               metaLine="This serial does not match the expected Checks format."
-              statusLabel="Review"
-              statusTone="warning"
             />
 
             <div className="panel">
@@ -520,8 +494,6 @@ export default function TestnetSerialPage(props: PageProps) {
               exploreHref={scanAddr(record.contract)}
               onCopyLink={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
               copyLabel={copiedKey === "share" ? "Copied Link" : "Copy Link"}
-              statusLabel={curatedStatus.label}
-              statusTone={curatedStatus.tone}
             />
 
             <div className="panel heroPanel">
@@ -530,10 +502,7 @@ export default function TestnetSerialPage(props: PageProps) {
                   <div className="sectionTitle">Check Data</div>
 
                   <div className="dataGrid">
-                    <DataCell
-                      label="Status"
-                      value={<StatusPill label={curatedStatus.label} tone={curatedStatus.tone} />}
-                    />
+                    <DataCell label="Status" value={curatedStatus.label} />
                     <DataCell label="Type" value={typeLabel} />
                     <DataCell label="Conditions" value={record.claimableAt ? conditions : "Instant Claim"} />
                     <DataCell label="Network" value={networkLabel} />
@@ -545,18 +514,18 @@ export default function TestnetSerialPage(props: PageProps) {
                     <DataCell label="Serial" value={serial} mono />
                     <DataCell label="Token ID" value={String(record.tokenId)} />
                     <DataCell label="Contract" value={record.contract} mono full />
-                    <DataCell
-                      label="Memo"
-                      value={
-                        record.memo || "No memo has been added for this tracked check yet."
-                      }
-                      full
-                    />
                   </div>
                 </div>
 
                 <div className="heroRight">
+                  <div className="sectionTitle">Check Preview</div>
                   <CheckPreview serial={serial} />
+                  <div className="panel memoPanel">
+                    <div className="sectionTitle sectionTitleSmall">Memo</div>
+                    <div className="noteBox">
+                      {record.memo || "No memo has been added for this tracked check yet."}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -583,7 +552,7 @@ export default function TestnetSerialPage(props: PageProps) {
               </div>
 
               <div className="panel">
-                <div className="sectionTitle">Notes</div>
+                <div className="sectionTitle">Explorer Notes</div>
                 <div className="noteBox">
                   This explorer page is still under active development. Temporary layout issues or QR placement inconsistencies may appear while the design system is being refined.
                 </div>
@@ -824,8 +793,6 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
           exploreHref={vm ? scanAddr(vm.contract) : undefined}
           onCopyLink={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
           copyLabel={copiedKey === "share" ? "Copied Link" : "Copy Link"}
-          statusLabel={statusMeta.label}
-          statusTone={statusMeta.tone}
         />
 
         <div className="panel heroPanel">
@@ -835,7 +802,7 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
 
               {vm && !loading && !error ? (
                 <div className="dataGrid">
-                  <DataCell label="Status" value={<StatusPill label={statusMeta.label} tone={statusMeta.tone} />} />
+                  <DataCell label="Status" value={statusMeta.label} />
                   <DataCell label="Type" value="Payment" />
                   <DataCell label="Conditions" value={claimableText} />
                   <DataCell label="Network" value={AMOY_NAME} />
@@ -844,13 +811,6 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
                   <DataCell label="Serial" value={serial} mono />
                   <DataCell label="Token ID" value={vm.tokenId.toString()} />
                   <DataCell label="Contract" value={vm.contract} mono full />
-                  <DataCell label="Issuer" value={vm.issuer} mono full />
-                  <DataCell label="Holder" value={vm.holder} mono full />
-                  <DataCell
-                    label="Memo"
-                    value={vm.memo || "No memo was found on-chain for this check."}
-                    full
-                  />
                 </div>
               ) : (
                 <div className="stateStack">
@@ -866,7 +826,15 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
             </div>
 
             <div className="heroRight">
+              <div className="sectionTitle">Check Preview</div>
               <CheckPreview serial={serial} allowFallback />
+
+              <div className="panel memoPanel">
+                <div className="sectionTitle sectionTitleSmall">Memo</div>
+                <div className="noteBox">
+                  {vm?.memo || "No memo was found on-chain for this check."}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -898,7 +866,7 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
           </div>
 
           <div className="panel">
-            <div className="sectionTitle">Notes</div>
+            <div className="sectionTitle">Explorer Notes</div>
             <div className="noteBox">
               Live on-chain lookup is enabled for supported Payment Checks deployments on Polygon Amoy. Visual polish and layout alignment are still being refined on this explorer page.
             </div>
@@ -910,12 +878,17 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
 }
 
 const styles = `
+:global(html),
+:global(body) {
+  background: #101012;
+}
+
 .page {
   min-height: 100vh;
   background:
     radial-gradient(1100px 520px at 20% -5%, rgba(22, 161, 216, 0.08), transparent 60%),
     radial-gradient(900px 420px at 100% 0%, rgba(22, 161, 216, 0.04), transparent 55%),
-    linear-gradient(180deg, #101012 0%, #131316 100%);
+    #101012;
   color: #f7f8fb;
   font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   padding: 22px 18px 72px;
@@ -926,11 +899,11 @@ const styles = `
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.035;
+  opacity: 0.03;
   background-image:
-    radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12) 0.6px, transparent 0.9px),
-    radial-gradient(circle at 70% 40%, rgba(255,255,255,0.08) 0.6px, transparent 0.9px),
-    radial-gradient(circle at 40% 80%, rgba(255,255,255,0.08) 0.6px, transparent 0.9px);
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,0.10) 0.6px, transparent 0.9px),
+    radial-gradient(circle at 70% 40%, rgba(255,255,255,0.07) 0.6px, transparent 0.9px),
+    radial-gradient(circle at 40% 80%, rgba(255,255,255,0.07) 0.6px, transparent 0.9px);
   background-size: 18px 18px, 22px 22px, 20px 20px;
 }
 
@@ -947,7 +920,7 @@ const styles = `
   justify-content: space-between;
   gap: 18px;
   padding: 14px 18px;
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(180deg, rgba(24, 24, 27, 0.96), rgba(20, 20, 24, 0.96));
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
@@ -957,34 +930,15 @@ const styles = `
 .brandLink {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
   text-decoration: none;
 }
 
-.brandMarkWrap {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #26afe4 0%, #1697cc 100%);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 12px 24px rgba(22, 161, 216, 0.28);
-}
-
-.brandMark {
-  color: white;
-  font-weight: 500;
-  font-size: 27px;
-  line-height: 1;
-  letter-spacing: -0.05em;
-}
-
-.brandText {
-  color: #ffffff;
-  font-size: 30px;
-  line-height: 1;
-  font-weight: 500;
-  letter-spacing: -0.03em;
+.brandLogo {
+  height: 42px;
+  width: auto;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .topbarRight {
@@ -994,12 +948,12 @@ const styles = `
 }
 
 .topbarTag {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(22, 161, 216, 0.24);
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(22, 161, 216, 0.22);
   color: #80d7fb;
-  background: rgba(22, 161, 216, 0.1);
+  background: rgba(22, 161, 216, 0.10);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1047,7 +1001,7 @@ const styles = `
   font-size: 62px;
   line-height: 0.98;
   letter-spacing: -0.04em;
-  font-weight: 500;
+  font-weight: 700;
   color: #ffffff;
 }
 
@@ -1077,12 +1031,12 @@ const styles = `
 }
 
 .headerBtn {
-  min-height: 42px;
+  min-height: 38px;
   padding: 0 15px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
-  color: #f1f5fb;
+  border: 1px solid rgba(22, 161, 216, 0.18);
+  background: rgba(22, 161, 216, 0.08);
+  color: #8ddaf7;
   text-decoration: none;
   font-family: inherit;
   font-size: 14px;
@@ -1094,61 +1048,11 @@ const styles = `
 }
 
 .headerBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.subtleHeaderBtn {
-  color: #8ddaf7;
-  border-color: rgba(22, 161, 216, 0.18);
-  background: rgba(22, 161, 216, 0.08);
-}
-
-.pill {
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid transparent;
-}
-
-.pill.success {
-  color: #67d79c;
-  background: rgba(30, 120, 72, 0.18);
-  border-color: rgba(63, 192, 120, 0.18);
-}
-
-.pill.info {
-  color: #76c9f0;
-  background: rgba(22, 161, 216, 0.14);
-  border-color: rgba(22, 161, 216, 0.18);
-}
-
-.pill.warning {
-  color: #ffd37a;
-  background: rgba(199, 136, 17, 0.16);
-  border-color: rgba(255, 193, 77, 0.18);
-}
-
-.pill.danger {
-  color: #ff9a9a;
-  background: rgba(171, 52, 52, 0.16);
-  border-color: rgba(226, 97, 97, 0.18);
-}
-
-.pill.muted {
-  color: #b6beca;
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(22, 161, 216, 0.12);
 }
 
 .panel {
-  border-radius: 20px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(180deg, rgba(24, 24, 27, 0.98), rgba(20, 20, 24, 0.98));
   box-shadow: 0 24px 50px rgba(0, 0, 0, 0.22);
@@ -1160,9 +1064,9 @@ const styles = `
 
 .heroGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 460px);
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 420px);
   gap: 22px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .heroLeft,
@@ -1178,6 +1082,11 @@ const styles = `
   margin-bottom: 16px;
 }
 
+.sectionTitleSmall {
+  font-size: 20px;
+  margin-bottom: 14px;
+}
+
 .dataGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1190,10 +1099,10 @@ const styles = `
 
 .dataCell {
   border-radius: 16px;
-  padding: 14px 15px;
+  padding: 16px 16px;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  min-height: 86px;
+  min-height: 98px;
 }
 
 .dataCell.full {
@@ -1202,43 +1111,25 @@ const styles = `
 }
 
 .dataLabel {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #6f7b8c;
   font-weight: 500;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .dataValue {
   color: #f2f5fa;
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: 19px;
+  line-height: 1.4;
   font-weight: 400;
   word-break: break-word;
 }
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-}
-
-.previewSurface {
-  height: 100%;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));
-  padding: 16px;
-}
-
-.previewLabel {
-  color: #7e8da0;
-  font-size: 11px;
-  line-height: 1.2;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 500;
-  margin-bottom: 14px;
 }
 
 .checkFrame {
@@ -1281,9 +1172,14 @@ const styles = `
   border-radius: 0;
 }
 
+.memoPanel {
+  margin-top: 16px;
+  padding: 16px;
+}
+
 .lowerGrid {
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1fr;
+  grid-template-columns: 1.6fr 0.9fr 0.9fr;
   gap: 18px;
   margin-top: 18px;
 }
@@ -1306,7 +1202,7 @@ const styles = `
 }
 
 .txLabel {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1355,17 +1251,8 @@ const styles = `
     padding: 12px 14px;
   }
 
-  .brandMarkWrap {
-    width: 42px;
-    height: 42px;
-  }
-
-  .brandMark {
-    font-size: 24px;
-  }
-
-  .brandText {
-    font-size: 24px;
+  .brandLogo {
+    height: 34px;
   }
 
   .routeHeaderRow {
@@ -1388,6 +1275,10 @@ const styles = `
   .dataGrid {
     grid-template-columns: 1fr;
   }
+
+  .dataValue {
+    font-size: 18px;
+  }
 }
 
 @media (max-width: 520px) {
@@ -1403,12 +1294,12 @@ const styles = `
     font-size: 21px;
   }
 
-  .brandText {
-    font-size: 20px;
+  .brandLogo {
+    height: 28px;
   }
 
   .headerBtn,
-  .pill {
+  .topbarTag {
     min-height: 38px;
   }
 
