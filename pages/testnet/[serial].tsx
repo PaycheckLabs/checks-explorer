@@ -1,7 +1,7 @@
 import type { GetServerSideProps } from "next";
 import Head from "next/head";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   createPublicClient,
@@ -29,6 +29,12 @@ type SerialRecord = {
   redeemTx?: string;
   voidTx?: string;
   claimableAt?: number;
+  title?: string;
+  typeLabel?: string;
+  statusLabel?: string;
+  initialCollateral?: string;
+  remainingCollateral?: string;
+  collateralSymbol?: string;
 };
 
 type PageProps = {
@@ -63,7 +69,7 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
   };
 };
 
-const AMOY_NAME = "Polygon Amoy (80002)";
+const AMOY_NAME = "Polygon Amoy";
 const AMOY_SCAN_BASE = "https://amoy.polygonscan.com";
 
 const AMOY_RPC_PRIMARY = "https://polygon-amoy-bor-rpc.publicnode.com/";
@@ -106,9 +112,11 @@ async function readContractCompat(args: any) {
 function scanAddr(addr: string) {
   return `${AMOY_SCAN_BASE}/address/${addr}`;
 }
+
 function scanTx(hash: string) {
   return `${AMOY_SCAN_BASE}/tx/${hash}`;
 }
+
 function bytes32ToTrimmedAscii(hex: Hex): string {
   try {
     const s = hexToString(hex, { size: 32 });
@@ -126,6 +134,34 @@ function shortAddress(value?: string) {
   if (!value) return "Not available";
   if (value.length < 12) return value;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function formatDateTime(ts?: number | bigint) {
+  const n = typeof ts === "bigint" ? Number(ts) : ts;
+  if (!n) return "Not available";
+  return new Date(n * 1000).toLocaleString();
+}
+
+function getStatusMeta(label?: string) {
+  const normalized = (label || "").toLowerCase();
+
+  if (normalized === "active") return { label: "Active", tone: "success" };
+  if (normalized === "issued") return { label: "Issued", tone: "info" };
+  if (normalized === "scheduled") return { label: "Scheduled", tone: "warning" };
+  if (normalized === "settled") return { label: "Settled", tone: "info" };
+  if (normalized === "canceled") return { label: "Canceled", tone: "danger" };
+  if (normalized === "redeemed") return { label: "Redeemed", tone: "info" };
+  if (normalized === "void") return { label: "Void", tone: "danger" };
+
+  return { label: label || "Unknown", tone: "muted" };
+}
+
+function deriveCuratedStatus(record: SerialRecord) {
+  if (record.statusLabel) return getStatusMeta(record.statusLabel);
+  if (record.voidTx) return getStatusMeta("Canceled");
+  if (record.redeemTx) return getStatusMeta("Settled");
+  if (record.claimableAt && record.claimableAt > Math.floor(Date.now() / 1000)) return getStatusMeta("Scheduled");
+  return getStatusMeta("Active");
 }
 
 const PCHK_ABI = [
@@ -219,7 +255,9 @@ type OnchainViewModel = {
   tbaBalance: bigint;
 };
 
-async function resolveDeploymentAndTokenId(serialB32: Hex): Promise<{
+async function resolveDeploymentAndTokenId(
+  serialB32: Hex
+): Promise<{
   deployment: DeploymentConfig;
   tokenId: bigint;
 } | null> {
@@ -236,25 +274,102 @@ async function resolveDeploymentAndTokenId(serialB32: Hex): Promise<{
   return null;
 }
 
-function StatusPill({ status }: { status: number }) {
-  const label = status === 1 ? "ACTIVE" : status === 2 ? "REDEEMED" : status === 3 ? "VOID" : "UNKNOWN";
-  const cls = status === 1 ? "active" : status === 2 ? "redeemed" : status === 3 ? "void" : "unknown";
-  return <span className={`pill ${cls}`}>{label}</span>;
+function ExplorerTopbar() {
+  return (
+    <div className="topbar">
+      <Link href="/testnet" className="brandLink">
+        <div className="brandMarkWrap">
+          <div className="brandMark">C</div>
+        </div>
+        <div className="brandText">Checks Explorer</div>
+      </Link>
+
+      <div className="topbarRight">
+        <span className="topbarTag">Testnet</span>
+      </div>
+    </div>
+  );
 }
 
-function Field({
+function StatusPill({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "success" | "info" | "warning" | "danger" | "muted";
+}) {
+  return <span className={`pill ${tone}`}>{label}</span>;
+}
+
+function RouteHeader({
+  serial,
+  title,
+  metaLine,
+  onCopyLink,
+  copyLabel,
+  statusLabel,
+  statusTone,
+  exploreHref,
+}: {
+  serial: string;
+  title: string;
+  metaLine: string;
+  onCopyLink?: () => void;
+  copyLabel?: string;
+  statusLabel: string;
+  statusTone: "success" | "info" | "warning" | "danger" | "muted";
+  exploreHref?: string;
+}) {
+  return (
+    <div className="routeHeader">
+      <div className="routeHeaderTop">
+        <Link className="back" href="/testnet">
+          ← Go back
+        </Link>
+      </div>
+
+      <div className="routeHeaderRow">
+        <div className="routeHeaderCopy">
+          <h1 className="title">{serial}</h1>
+          <div className="checkName">{title}</div>
+          <div className="metaLine">{metaLine}</div>
+        </div>
+
+        <div className="routeHeaderActions">
+          {exploreHref ? (
+            <a className="headerBtn" href={exploreHref} target="_blank" rel="noreferrer">
+              View on Polygonscan
+            </a>
+          ) : null}
+
+          {onCopyLink ? (
+            <button className="headerBtn subtleHeaderBtn" onClick={onCopyLink} type="button">
+              {copyLabel || "Copy Link"}
+            </button>
+          ) : null}
+
+          <StatusPill label={statusLabel} tone={statusTone} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DataCell({
   label,
   value,
   mono = false,
+  full = false,
 }: {
   label: string;
-  value: React.ReactNode;
+  value: ReactNode;
   mono?: boolean;
+  full?: boolean;
 }) {
   return (
-    <div className="field">
-      <div className="fieldLabel">{label}</div>
-      <div className={`fieldValue ${mono ? "mono" : ""}`}>{value}</div>
+    <div className={`dataCell ${full ? "full" : ""}`}>
+      <div className="dataLabel">{label}</div>
+      <div className={`dataValue ${mono ? "mono" : ""}`}>{value}</div>
     </div>
   );
 }
@@ -276,9 +391,70 @@ function TxRow({
   );
 }
 
+function CheckPreview({
+  serial,
+  allowFallback = false,
+}: {
+  serial: string;
+  allowFallback?: boolean;
+}) {
+  return (
+    <div className="previewSurface">
+      <div className="previewLabel">Check Preview</div>
+
+      <div className="checkFrame">
+        <div className="checkBox">
+          <img
+            src={`/checks/testnet/${serial}.png`}
+            alt={`Check ${serial}`}
+            className="checkImg"
+            draggable={false}
+            onError={
+              allowFallback
+                ? (e) => {
+                    const t = e.currentTarget;
+                    if (t && !t.src.includes("/checks/blank.png")) t.src = "/checks/blank.png";
+                  }
+                : undefined
+            }
+          />
+
+          <div className="qrOuter">
+            <img
+              src={`/qr/testnet/${serial}.png`}
+              alt={`QR for ${serial}`}
+              className="qrImg"
+              draggable={false}
+              onError={
+                allowFallback
+                  ? (e) => {
+                      const t = e.currentTarget;
+                      if (t && !t.src.includes("/qr/blank.png")) t.src = "/qr/blank.png";
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TestnetSerialPage(props: PageProps) {
   const { serial, record, origin } = props;
   const isValid = useMemo(() => isValidSerialFormat(serial), [serial]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  async function copyToClipboard(textToCopy: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1200);
+    } catch {
+      // ignore
+    }
+  }
 
   if (!isValid) {
     return (
@@ -289,26 +465,25 @@ export default function TestnetSerialPage(props: PageProps) {
 
         <div className="page">
           <div className="shell">
-            <div className="header">
-              <Link className="back" href="/testnet">
-                ← Back
-              </Link>
+            <ExplorerTopbar />
 
-              <div className="headerRow">
-                <div>
-                  <h1 className="title">Invalid serial</h1>
-                  <div className="sub">This serial does not match the Checks format.</div>
-                </div>
-              </div>
-            </div>
+            <RouteHeader
+              serial="Invalid Serial"
+              title="Checks Explorer"
+              metaLine="This serial does not match the expected Checks format."
+              statusLabel="Review"
+              statusTone="warning"
+            />
 
-            <div className="supportGrid single">
-              <div className="infoCard">
-                <div className="cardTitle">Serial Review</div>
-                <Field label="Serial" value={serial} mono />
-                <div className="noteBox">
-                  Please verify the URL or QR source and try again.
-                </div>
+            <div className="panel">
+              <div className="sectionTitle">Serial Review</div>
+              <div className="dataGrid single">
+                <DataCell label="Serial" value={serial} mono />
+                <DataCell
+                  label="Notes"
+                  value="Please verify the URL or QR source and try again."
+                  full
+                />
               </div>
             </div>
           </div>
@@ -320,6 +495,12 @@ export default function TestnetSerialPage(props: PageProps) {
   }
 
   if (record) {
+    const curatedStatus = deriveCuratedStatus(record);
+    const checkTitle = record.title || "Testnet Payment Check";
+    const typeLabel = record.typeLabel || "Payment";
+    const conditions = record.claimableAt ? formatDateTime(record.claimableAt) : "Instant Claim";
+    const networkLabel = record.network || AMOY_NAME;
+
     return (
       <>
         <Head>
@@ -328,108 +509,81 @@ export default function TestnetSerialPage(props: PageProps) {
 
         <div className="page">
           <div className="shell">
-            <div className="header">
-              <Link className="back" href="/testnet">
-                ← Back
-              </Link>
+            <ExplorerTopbar />
 
-              <div className="headerRow">
-                <div className="headerCopy">
-                  <h1 className="title">{serial}</h1>
-                  <div className="subTitle">Testnet Payment Check on Polygon Amoy</div>
-                  <div className="sub">
-                    Curated explorer view for specific demo checks. This page is serving as the visual anchor for the Checks explorer.
-                  </div>
-                </div>
+            <RouteHeader
+              serial={serial}
+              title={checkTitle}
+              metaLine={`${networkLabel} • Mock USD • ${record.claimableAt ? "Scheduled" : "Instant Claim"}`}
+              exploreHref={scanAddr(record.contract)}
+              onCopyLink={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
+              copyLabel={copiedKey === "share" ? "Copied Link" : "Copy Link"}
+              statusLabel={curatedStatus.label}
+              statusTone={curatedStatus.tone}
+            />
 
-                <div className="headerBadges">
-                  <span className="metaBadge">TESTNET</span>
-                  <span className="pill active">ACTIVE</span>
-                </div>
-              </div>
-            </div>
+            <div className="panel heroPanel">
+              <div className="heroGrid">
+                <div className="heroLeft">
+                  <div className="sectionTitle">Check Data</div>
 
-            <div className="heroGrid">
-              <div className="visualCard">
-                <div className="visualCardInner">
-                  <div className="visualLabel">Check Preview</div>
-
-                  <div className="checkWrap">
-                    <div className="checkBox">
-                      <img
-                        src={`/checks/testnet/${serial}.png`}
-                        alt={`Check ${serial}`}
-                        className="checkImg"
-                        draggable={false}
-                      />
-
-                      <div className="qrOuter">
-                        <img
-                          src={`/qr/testnet/${serial}.png`}
-                          alt={`QR for ${serial}`}
-                          className="qrImg"
-                          draggable={false}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="detailsCard">
-                <div className="cardTitle">Check Details</div>
-
-                <div className="fieldStack">
-                  <Field label="Status" value="Active" />
-                  <Field label="Type" value="Payment Check" />
-                  <Field label="Serial" value={serial} mono />
-                  <Field label="Network" value={record.network} />
-                  <Field label="Token ID" value={String(record.tokenId)} />
-                  <Field label="Contract" value={shortAddress(record.contract)} mono />
-                  {record.claimableAt ? (
-                    <Field
-                      label="Claimable At"
-                      value={new Date(record.claimableAt * 1000).toLocaleString()}
+                  <div className="dataGrid">
+                    <DataCell
+                      label="Status"
+                      value={<StatusPill label={curatedStatus.label} tone={curatedStatus.tone} />}
                     />
-                  ) : (
-                    <Field label="Conditions" value="Instant Claim" />
-                  )}
-                  {record.memo ? <Field label="Memo" value={record.memo} /> : null}
+                    <DataCell label="Type" value={typeLabel} />
+                    <DataCell label="Conditions" value={record.claimableAt ? conditions : "Instant Claim"} />
+                    <DataCell label="Network" value={networkLabel} />
+                    <DataCell label="Initial Collateral" value={record.initialCollateral || "Not yet tracked"} />
+                    <DataCell
+                      label="Remaining Collateral"
+                      value={record.remainingCollateral || "Not yet tracked"}
+                    />
+                    <DataCell label="Serial" value={serial} mono />
+                    <DataCell label="Token ID" value={String(record.tokenId)} />
+                    <DataCell label="Contract" value={record.contract} mono full />
+                    <DataCell
+                      label="Memo"
+                      value={
+                        record.memo || "No memo has been added for this tracked check yet."
+                      }
+                      full
+                    />
+                  </div>
                 </div>
 
-                <div className="actionRow">
-                  <a className="actionBtn" href={scanAddr(record.contract)} target="_blank" rel="noreferrer">
-                    View Contract
-                  </a>
-                  <a className="actionBtn subtleBtn" href={`${origin}/testnet/${serial}`} target="_blank" rel="noreferrer">
-                    Open Share URL
-                  </a>
+                <div className="heroRight">
+                  <CheckPreview serial={serial} />
                 </div>
               </div>
             </div>
 
-            <div className="supportGrid">
-              <div className="infoCard">
-                <div className="cardTitle">Transactions</div>
+            <div className="lowerGrid">
+              <div className="panel">
+                <div className="sectionTitle">Transactions</div>
                 <div className="txStack">
                   {record.mintTx ? <TxRow label="Mint" hash={record.mintTx} /> : null}
+                  {record.transferTx ? <TxRow label="Transfer" hash={record.transferTx} /> : null}
                   {record.redeemTx ? <TxRow label="Redeem" hash={record.redeemTx} /> : null}
                   {record.voidTx ? <TxRow label="Void" hash={record.voidTx} /> : null}
-                  {!record.mintTx && !record.redeemTx && !record.voidTx ? (
-                    <div className="emptyState">No transaction references have been added for this curated record yet.</div>
+                  {!record.mintTx && !record.transferTx && !record.redeemTx && !record.voidTx ? (
+                    <div className="emptyState">No transaction references have been added for this tracked check yet.</div>
                   ) : null}
                 </div>
               </div>
 
-              <div className="infoCard">
-                <div className="cardTitle">Share</div>
-                <Field label="URL" value={`${origin}/testnet/${serial}`} mono />
+              <div className="panel">
+                <div className="sectionTitle">Share</div>
+                <div className="dataGrid single">
+                  <DataCell label="URL" value={`${origin}/testnet/${serial}`} mono full />
+                </div>
               </div>
 
-              <div className="infoCard">
-                <div className="cardTitle">Notes</div>
+              <div className="panel">
+                <div className="sectionTitle">Notes</div>
                 <div className="noteBox">
-                  This page is under active development. Temporary formatting issues or QR placement inconsistencies may appear while we refine the layout.
+                  This explorer page is still under active development. Temporary layout issues or QR placement inconsistencies may appear while the design system is being refined.
                 </div>
               </div>
             </div>
@@ -628,140 +782,105 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
     }
   }
 
-  const claimableText = useMemo(() => {
-    if (!vm) return "Not available";
-    const t = Number(vm.claimableAt);
-    if (!t) return "Instant Claim";
-    return new Date(t * 1000).toLocaleString();
-  }, [vm]);
-
   const amountText = useMemo(() => {
     if (!vm) return "Not available";
     return `${formatUnits(vm.amount, vm.decimals)} ${vm.symbol}`;
   }, [vm]);
 
-  const tbaBalText = useMemo(() => {
+  const remainingText = useMemo(() => {
     if (!vm) return "Not available";
     return `${formatUnits(vm.tbaBalance, vm.decimals)} ${vm.symbol}`;
+  }, [vm]);
+
+  const claimableText = useMemo(() => {
+    if (!vm) return "Not available";
+    return Number(vm.claimableAt) ? formatDateTime(vm.claimableAt) : "Instant Claim";
+  }, [vm]);
+
+  const statusMeta = useMemo(() => {
+    if (!vm) return getStatusMeta("Unknown");
+    if (vm.status === 1) return getStatusMeta("Active");
+    if (vm.status === 2) return getStatusMeta("Redeemed");
+    if (vm.status === 3) return getStatusMeta("Void");
+    return getStatusMeta("Unknown");
+  }, [vm]);
+
+  const checkTitle = useMemo(() => {
+    if (!vm?.title) return "Testnet Payment Check";
+    return vm.title;
   }, [vm]);
 
   return (
     <div className="page">
       <div className="shell">
-        <div className="header">
-          <Link className="back" href="/testnet">
-            ← Back
-          </Link>
+        <ExplorerTopbar />
 
-          <div className="headerRow">
-            <div className="headerCopy">
-              <h1 className="title">{serial}</h1>
-              <div className="subTitle">Testnet Payment Check on Polygon Amoy</div>
-              <div className="sub">
-                If this serial is not part of the curated demo list, we resolve it live from supported Amoy deployments.
-              </div>
-            </div>
+        <RouteHeader
+          serial={serial}
+          title={checkTitle}
+          metaLine={`${AMOY_NAME} • ${vm?.symbol || "Token"} • ${Number(vm?.claimableAt || 0n) ? "Scheduled" : "Instant Claim"}`}
+          exploreHref={vm ? scanAddr(vm.contract) : undefined}
+          onCopyLink={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
+          copyLabel={copiedKey === "share" ? "Copied Link" : "Copy Link"}
+          statusLabel={statusMeta.label}
+          statusTone={statusMeta.tone}
+        />
 
-            <div className="headerBadges">
-              <span className="metaBadge">ON-CHAIN</span>
-              <div>{vm ? <StatusPill status={vm.status} /> : null}</div>
-            </div>
-          </div>
-        </div>
+        <div className="panel heroPanel">
+          <div className="heroGrid">
+            <div className="heroLeft">
+              <div className="sectionTitle">Check Data</div>
 
-        <div className="heroGrid">
-          <div className="visualCard">
-            <div className="visualCardInner">
-              <div className="visualLabel">Check Preview</div>
-
-              <div className="checkWrap">
-                <div className="checkBox">
-                  <img
-                    src={`/checks/testnet/${serial}.png`}
-                    alt={`Check ${serial}`}
-                    className="checkImg"
-                    draggable={false}
-                    onError={(e) => {
-                      const t = e.currentTarget;
-                      if (t && !t.src.includes("/checks/blank.png")) t.src = "/checks/blank.png";
-                    }}
+              {vm && !loading && !error ? (
+                <div className="dataGrid">
+                  <DataCell label="Status" value={<StatusPill label={statusMeta.label} tone={statusMeta.tone} />} />
+                  <DataCell label="Type" value="Payment" />
+                  <DataCell label="Conditions" value={claimableText} />
+                  <DataCell label="Network" value={AMOY_NAME} />
+                  <DataCell label="Initial Collateral" value={amountText} />
+                  <DataCell label="Remaining Collateral" value={remainingText} />
+                  <DataCell label="Serial" value={serial} mono />
+                  <DataCell label="Token ID" value={vm.tokenId.toString()} />
+                  <DataCell label="Contract" value={vm.contract} mono full />
+                  <DataCell label="Issuer" value={vm.issuer} mono full />
+                  <DataCell label="Holder" value={vm.holder} mono full />
+                  <DataCell
+                    label="Memo"
+                    value={vm.memo || "No memo was found on-chain for this check."}
+                    full
                   />
-
-                  <div className="qrOuter">
-                    <img
-                      src={`/qr/testnet/${serial}.png`}
-                      alt={`QR for ${serial}`}
-                      className="qrImg"
-                      draggable={false}
-                      onError={(e) => {
-                        const t = e.currentTarget;
-                        if (t && !t.src.includes("/qr/blank.png")) t.src = "/qr/blank.png";
-                      }}
-                    />
-                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="stateStack">
+                  {loading ? <div className="noteBox">Resolving serial on-chain...</div> : null}
+                  {notFound ? (
+                    <div className="noteBox">
+                      This serial is not in the curated list and was not found on the supported Polygon Amoy deployments.
+                    </div>
+                  ) : null}
+                  {error ? <div className="noteBox">{error}</div> : null}
+                </div>
+              )}
             </div>
-          </div>
 
-          <div className="detailsCard">
-            <div className="cardTitle">On-chain Details</div>
-
-            {vm && !loading && !error ? (
-              <>
-                <div className="fieldStack">
-                  <Field label="Deployment" value={vm.deploymentLabel} />
-                  <Field label="Network" value={AMOY_NAME} />
-                  <Field label="Token ID" value={vm.tokenId.toString()} />
-                  <Field label="Issuer" value={shortAddress(vm.issuer)} mono />
-                  <Field label="Holder" value={shortAddress(vm.holder)} mono />
-                  <Field label="TBA" value={shortAddress(vm.tba)} mono />
-                  <Field label="Amount" value={amountText} />
-                  <Field label="TBA Balance" value={tbaBalText} />
-                  <Field label="Claimable At" value={claimableText} />
-                  <Field label="Contract" value={shortAddress(vm.contract)} mono />
-                  {vm.title ? <Field label="Title" value={vm.title} /> : null}
-                  {vm.memo ? <Field label="Memo" value={vm.memo} /> : null}
-                </div>
-
-                <div className="actionRow">
-                  <button
-                    className={`actionBtn ${copiedKey === "share" ? "copiedBtn" : ""}`}
-                    onClick={() => copyToClipboard(`${origin}/testnet/${serial}`, "share")}
-                    type="button"
-                  >
-                    {copiedKey === "share" ? "Copied URL" : "Copy Share URL"}
-                  </button>
-
-                  <a className="actionBtn subtleBtn" href={scanAddr(vm.contract)} target="_blank" rel="noreferrer">
-                    View Contract
-                  </a>
-                </div>
-              </>
-            ) : (
-              <div className="stateStack">
-                {loading ? <div className="noteBox">Resolving serial on-chain...</div> : null}
-                {notFound ? (
-                  <div className="noteBox">
-                    This serial is not in the curated list and was not found on-chain on the supported Amoy deployments.
-                  </div>
-                ) : null}
-                {error ? <div className="noteBox">{error}</div> : null}
-              </div>
-            )}
+            <div className="heroRight">
+              <CheckPreview serial={serial} allowFallback />
+            </div>
           </div>
         </div>
 
-        <div className="supportGrid">
-          <div className="infoCard">
-            <div className="cardTitle">Transactions</div>
+        <div className="lowerGrid">
+          <div className="panel">
+            <div className="sectionTitle">Transactions</div>
             {vm && !loading && !error ? (
               <div className="txStack">
                 {vm.mintTx ? <TxRow label="Mint" hash={vm.mintTx} /> : null}
                 {vm.redeemTx ? <TxRow label="Redeem" hash={vm.redeemTx} /> : null}
                 {vm.voidTx ? <TxRow label="Void" hash={vm.voidTx} /> : null}
                 {!vm.mintTx && !vm.redeemTx && !vm.voidTx ? (
-                  <div className="emptyState">Transaction hashes are best-effort and may depend on RPC log support.</div>
+                  <div className="emptyState">
+                    Transaction hashes are best-effort and may depend on RPC log support.
+                  </div>
                 ) : null}
               </div>
             ) : (
@@ -769,15 +888,17 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
             )}
           </div>
 
-          <div className="infoCard">
-            <div className="cardTitle">Share</div>
-            <Field label="URL" value={`${origin}/testnet/${serial}`} mono />
+          <div className="panel">
+            <div className="sectionTitle">Share</div>
+            <div className="dataGrid single">
+              <DataCell label="URL" value={`${origin}/testnet/${serial}`} mono full />
+            </div>
           </div>
 
-          <div className="infoCard">
-            <div className="cardTitle">Notes</div>
+          <div className="panel">
+            <div className="sectionTitle">Notes</div>
             <div className="noteBox">
-              Live on-chain lookup is enabled for supported Payment Checks deployments on Polygon Amoy. Layout polish is still in progress on this explorer page.
+              Live on-chain lookup is enabled for supported Payment Checks deployments on Polygon Amoy. Visual polish and layout alignment are still being refined on this explorer page.
             </div>
           </div>
         </div>
@@ -789,14 +910,13 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
 const styles = `
 .page {
   min-height: 100vh;
-  padding: 34px 18px 72px;
   background:
-    radial-gradient(900px 480px at 12% 0%, rgba(255,255,255,0.92), rgba(255,255,255,0) 58%),
-    radial-gradient(700px 420px at 100% 8%, rgba(228,233,240,0.72), rgba(255,255,255,0) 55%),
-    linear-gradient(180deg, #f7f5ef 0%, #f3f1eb 100%);
-  color: #1f2a37;
+    radial-gradient(1100px 520px at 20% -5%, rgba(22, 161, 216, 0.08), transparent 60%),
+    radial-gradient(900px 420px at 100% 0%, rgba(22, 161, 216, 0.04), transparent 55%),
+    linear-gradient(180deg, #101012 0%, #131316 100%);
+  color: #f7f8fb;
   font-family: "Kanit", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  position: relative;
+  padding: 22px 18px 72px;
 }
 
 .page:before {
@@ -804,176 +924,326 @@ const styles = `
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.045;
+  opacity: 0.035;
   background-image:
-    radial-gradient(circle at 20% 20%, rgba(0,0,0,0.07) 0.6px, transparent 0.8px),
-    radial-gradient(circle at 80% 30%, rgba(0,0,0,0.05) 0.6px, transparent 0.8px),
-    radial-gradient(circle at 40% 80%, rgba(0,0,0,0.05) 0.6px, transparent 0.8px);
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12) 0.6px, transparent 0.9px),
+    radial-gradient(circle at 70% 40%, rgba(255,255,255,0.08) 0.6px, transparent 0.9px),
+    radial-gradient(circle at 40% 80%, rgba(255,255,255,0.08) 0.6px, transparent 0.9px);
   background-size: 18px 18px, 22px 22px, 20px 20px;
 }
 
 .shell {
-  max-width: 1240px;
+  max-width: 1320px;
   margin: 0 auto;
   position: relative;
   z-index: 1;
 }
 
-.header {
-  margin-bottom: 24px;
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(24, 24, 27, 0.96), rgba(20, 20, 24, 0.96));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+  margin-bottom: 20px;
+}
+
+.brandLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.brandMarkWrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #26afe4 0%, #1697cc 100%);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 12px 24px rgba(22, 161, 216, 0.28);
+}
+
+.brandMark {
+  color: white;
+  font-weight: 500;
+  font-size: 27px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.brandText {
+  color: #ffffff;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.topbarRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbarTag {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(22, 161, 216, 0.24);
+  color: #80d7fb;
+  background: rgba(22, 161, 216, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}
+
+.routeHeader {
+  margin-bottom: 18px;
+}
+
+.routeHeaderTop {
+  margin-bottom: 10px;
 }
 
 .back {
-  display: inline-block;
-  color: #4c6a8b;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a8b0bc;
   text-decoration: none;
-  font-weight: 500;
-  font-size: 15px;
-  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 400;
 }
 
 .back:hover {
-  color: #244b76;
+  color: #ffffff;
 }
 
-.headerRow {
+.routeHeaderRow {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 18px;
 }
 
-.headerCopy {
-  max-width: 860px;
+.routeHeaderCopy {
+  max-width: 880px;
 }
 
 .title {
   margin: 0;
-  font-size: 54px;
+  font-size: 62px;
   line-height: 0.98;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   font-weight: 500;
-  color: #182432;
+  color: #ffffff;
 }
 
-.subTitle {
+.checkName {
   margin-top: 12px;
-  font-size: 18px;
-  line-height: 1.25;
-  color: #314459;
+  font-size: 30px;
+  line-height: 1.1;
+  color: #f0f3f8;
   font-weight: 500;
+  letter-spacing: -0.02em;
 }
 
-.sub {
-  margin-top: 8px;
-  max-width: 760px;
-  color: rgba(49, 68, 89, 0.78);
+.metaLine {
+  margin-top: 10px;
+  color: #9aa4b3;
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.45;
   font-weight: 400;
 }
 
-.headerBadges {
+.routeHeaderActions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.metaBadge,
-.pill {
+.headerBtn {
+  min-height: 42px;
+  padding: 0 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1f5fb;
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  font-weight: 500;
-  text-transform: uppercase;
+  cursor: pointer;
 }
 
-.metaBadge {
-  border: 1px solid rgba(105, 128, 153, 0.18);
-  background: rgba(255,255,255,0.56);
-  color: #4f667f;
-  box-shadow: 0 10px 28px rgba(70, 86, 110, 0.06);
+.headerBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.subtleHeaderBtn {
+  color: #8ddaf7;
+  border-color: rgba(22, 161, 216, 0.18);
+  background: rgba(22, 161, 216, 0.08);
 }
 
 .pill {
-  border: 1px solid rgba(33, 40, 48, 0.08);
-  background: rgba(255,255,255,0.72);
-  color: #324152;
-  box-shadow: 0 10px 28px rgba(70, 86, 110, 0.06);
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
 }
 
-.pill.active {
-  border-color: rgba(40, 158, 94, 0.22);
-  background: rgba(231, 247, 238, 0.92);
-  color: #137546;
+.pill.success {
+  color: #67d79c;
+  background: rgba(30, 120, 72, 0.18);
+  border-color: rgba(63, 192, 120, 0.18);
 }
 
-.pill.redeemed {
-  border-color: rgba(70, 122, 215, 0.20);
-  background: rgba(233, 240, 255, 0.92);
-  color: #2958b9;
+.pill.info {
+  color: #76c9f0;
+  background: rgba(22, 161, 216, 0.14);
+  border-color: rgba(22, 161, 216, 0.18);
 }
 
-.pill.void {
-  border-color: rgba(214, 90, 90, 0.20);
-  background: rgba(255, 237, 237, 0.92);
-  color: #b03838;
+.pill.warning {
+  color: #ffd37a;
+  background: rgba(199, 136, 17, 0.16);
+  border-color: rgba(255, 193, 77, 0.18);
 }
 
-.pill.unknown {
-  border-color: rgba(120, 134, 156, 0.18);
-  background: rgba(241, 244, 247, 0.92);
-  color: #5b6c7f;
+.pill.danger {
+  color: #ff9a9a;
+  background: rgba(171, 52, 52, 0.16);
+  border-color: rgba(226, 97, 97, 0.18);
+}
+
+.pill.muted {
+  color: #b6beca;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.panel {
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(24, 24, 27, 0.98), rgba(20, 20, 24, 0.98));
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.22);
+}
+
+.heroPanel {
+  padding: 18px;
 }
 
 .heroGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 420px);
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 460px);
   gap: 22px;
-  align-items: start;
+  align-items: stretch;
 }
 
-.visualCard,
-.detailsCard,
-.infoCard {
-  border-radius: 24px;
-  border: 1px solid rgba(120, 130, 146, 0.12);
-  background: rgba(255,255,255,0.72);
-  box-shadow:
-    0 16px 40px rgba(54, 66, 83, 0.06),
-    inset 0 1px 0 rgba(255,255,255,0.65);
-  backdrop-filter: blur(10px);
+.heroLeft,
+.heroRight {
+  min-width: 0;
 }
 
-.visualCardInner {
-  padding: 20px;
+.sectionTitle {
+  font-size: 22px;
+  line-height: 1.2;
+  color: #ffffff;
+  font-weight: 500;
+  margin-bottom: 16px;
 }
 
-.visualLabel {
-  font-size: 12px;
-  letter-spacing: 0.08em;
+.dataGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dataGrid.single {
+  grid-template-columns: 1fr;
+}
+
+.dataCell {
+  border-radius: 16px;
+  padding: 14px 15px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 86px;
+}
+
+.dataCell.full {
+  grid-column: 1 / -1;
+  min-height: auto;
+}
+
+.dataLabel {
+  font-size: 11px;
+  line-height: 1.2;
   text-transform: uppercase;
-  color: #688099;
+  letter-spacing: 0.08em;
+  color: #6f7b8c;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.dataValue {
+  color: #f2f5fa;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 400;
+  word-break: break-word;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.previewSurface {
+  height: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));
+  padding: 16px;
+}
+
+.previewLabel {
+  color: #7e8da0;
+  font-size: 11px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   font-weight: 500;
   margin-bottom: 14px;
 }
 
-.checkWrap {
-  border-radius: 20px;
-  padding: 18px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.9), rgba(248,246,241,0.9)),
-    rgba(255,255,255,0.9);
-  border: 1px solid rgba(122, 136, 153, 0.10);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.75),
-    0 8px 22px rgba(78, 91, 110, 0.06);
+.checkFrame {
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .checkBox {
@@ -985,7 +1255,7 @@ const styles = `
   width: 100%;
   height: auto;
   display: block;
-  border-radius: 16px;
+  border-radius: 14px;
   user-select: none;
   -webkit-user-drag: none;
 }
@@ -1006,103 +1276,18 @@ const styles = `
 .qrImg {
   width: 96px;
   height: 96px;
-  border-radius: 0px;
+  border-radius: 0;
 }
 
-.detailsCard,
-.infoCard {
-  padding: 20px;
-}
-
-.cardTitle {
-  font-size: 18px;
-  line-height: 1.2;
-  color: #1f2a37;
-  font-weight: 500;
-  margin-bottom: 16px;
-}
-
-.fieldStack {
+.lowerGrid {
   display: grid;
-  gap: 12px;
-}
-
-.field {
-  border-radius: 16px;
-  padding: 13px 14px;
-  background: rgba(247, 245, 240, 0.84);
-  border: 1px solid rgba(117, 129, 146, 0.10);
-}
-
-.fieldLabel {
-  font-size: 11px;
-  line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #6f849a;
-  font-weight: 500;
-  margin-bottom: 7px;
-}
-
-.fieldValue {
-  color: #203041;
-  font-size: 15px;
-  line-height: 1.45;
-  font-weight: 400;
-  word-break: break-word;
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-}
-
-.actionRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.actionBtn {
-  appearance: none;
-  border: 1px solid rgba(55, 101, 164, 0.14);
-  background: rgba(52, 112, 191, 0.08);
-  color: #1d5a97;
-  border-radius: 999px;
-  min-height: 40px;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.actionBtn:hover {
-  background: rgba(52, 112, 191, 0.12);
-}
-
-.subtleBtn {
-  background: rgba(255,255,255,0.78);
-  color: #364a5f;
-  border-color: rgba(110, 127, 146, 0.12);
-}
-
-.copiedBtn {
-  border-color: rgba(40, 158, 94, 0.20);
-  background: rgba(231, 247, 238, 0.92);
-  color: #137546;
-}
-
-.supportGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1.35fr 1fr 1fr;
   gap: 18px;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
-.supportGrid.single {
-  grid-template-columns: minmax(0, 480px);
+.lowerGrid .panel {
+  padding: 18px;
 }
 
 .txStack,
@@ -1112,24 +1297,24 @@ const styles = `
 }
 
 .txRow {
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 13px 14px;
-  background: rgba(247, 245, 240, 0.84);
-  border: 1px solid rgba(117, 129, 146, 0.10);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .txLabel {
   font-size: 11px;
   line-height: 1.2;
-  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6f849a;
+  letter-spacing: 0.08em;
+  color: #6f7b8c;
   font-weight: 500;
-  margin-bottom: 7px;
+  margin-bottom: 8px;
 }
 
 .hashLink {
-  color: #1d5a97;
+  color: #63c5ee;
   text-decoration: none;
   font-size: 13px;
   line-height: 1.5;
@@ -1143,58 +1328,86 @@ const styles = `
 
 .noteBox,
 .emptyState {
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 14px;
-  background: rgba(247, 245, 240, 0.84);
-  border: 1px solid rgba(117, 129, 146, 0.10);
-  color: #314459;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #c0c8d2;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.55;
   font-weight: 400;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1180px) {
   .heroGrid {
     grid-template-columns: 1fr;
   }
 
-  .supportGrid {
+  .lowerGrid {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 760px) {
-  .page {
-    padding: 24px 14px 52px;
+@media (max-width: 860px) {
+  .topbar {
+    padding: 12px 14px;
   }
 
-  .headerRow {
+  .brandMarkWrap {
+    width: 42px;
+    height: 42px;
+  }
+
+  .brandMark {
+    font-size: 24px;
+  }
+
+  .brandText {
+    font-size: 24px;
+  }
+
+  .routeHeaderRow {
     flex-direction: column;
     align-items: flex-start;
   }
 
+  .routeHeaderActions {
+    justify-content: flex-start;
+  }
+
   .title {
-    font-size: 42px;
+    font-size: 46px;
   }
 
-  .subTitle {
-    font-size: 17px;
+  .checkName {
+    font-size: 25px;
   }
 
-  .visualCardInner,
-  .detailsCard,
-  .infoCard {
-    padding: 16px;
-  }
-
-  .checkWrap {
-    padding: 12px;
+  .dataGrid {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 520px) {
+  .page {
+    padding: 14px 12px 48px;
+  }
+
   .title {
-    font-size: 36px;
+    font-size: 38px;
+  }
+
+  .checkName {
+    font-size: 21px;
+  }
+
+  .brandText {
+    font-size: 20px;
+  }
+
+  .headerBtn,
+  .pill {
+    min-height: 38px;
   }
 
   .qrOuter {
@@ -1208,7 +1421,6 @@ const styles = `
   .qrImg {
     width: 86px;
     height: 86px;
-    border-radius: 0px;
   }
 }
 `;
