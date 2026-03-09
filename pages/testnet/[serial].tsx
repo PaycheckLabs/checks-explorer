@@ -1136,9 +1136,9 @@ const styles = `
 .qrOuter {
   position: absolute;
   right: 24px;
-  top: 138px;
-  width: 118px;
-  height: 118px;
+  top: 139px;
+  width: 113px;
+  height: 113px;
   background: rgba(255, 255, 255, 0.96);
   border-radius: 6px;
   display: flex;
@@ -1148,8 +1148,8 @@ const styles = `
 }
 
 .qrImg {
-  width: 104px;
-  height: 104px;
+  width: 100px;
+  height: 100px;
   display: block;
   border-radius: 0;
 }
