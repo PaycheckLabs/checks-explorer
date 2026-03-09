@@ -1130,20 +1130,20 @@ const styles = `
 
 .qrOuter {
   position: absolute;
-  right: 26px;
-  top: 180px;
-  width: 112px;
-  height: 112px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.9);
+  right: 18px;
+  top: 118px;
+  width: 168px;
+  height: 168px;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .qrImg {
-  width: 96px;
-  height: 96px;
+  width: 168px;
+  height: 168px;
+  display: block;
   border-radius: 0;
 }
 
@@ -1292,16 +1292,14 @@ const styles = `
   }
 
   .qrOuter {
-    right: 16px;
-    top: 135px;
-    width: 102px;
-    height: 102px;
-    border-radius: 7px;
-  }
+  right: 12px;
+  top: 96px;
+  width: 124px;
+  height: 124px;
+}
 
-  .qrImg {
-    width: 86px;
-    height: 86px;
-  }
+.qrImg {
+  width: 124px;
+  height: 124px;
 }
 `;
