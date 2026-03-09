@@ -372,9 +372,11 @@ function TxRow({
 
 function CheckPreview({
   serial,
+  qrValue,
   allowFallback = false,
 }: {
   serial: string;
+  qrValue: string;
   allowFallback?: boolean;
 }) {
   return (
@@ -397,7 +399,7 @@ function CheckPreview({
 
         <div className="qrOuter">
           <img
-            src={`/qr/testnet/${serial}.png`}
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrValue)}`}
             alt={`QR for ${serial}`}
             className="qrImg"
             draggable={false}
@@ -472,6 +474,7 @@ export default function TestnetSerialPage(props: PageProps) {
     const typeLabel = record.typeLabel || "Payment";
     const conditions = record.claimableAt ? formatDateTime(record.claimableAt) : "Instant Claim";
     const networkLabel = record.network || AMOY_NAME;
+    const serialUrl = `${origin}/testnet/${serial}`;
 
     return (
       <>
@@ -511,7 +514,7 @@ export default function TestnetSerialPage(props: PageProps) {
 
                 <div className="heroRight">
                   <div className="sectionTitle">Check Preview</div>
-                  <CheckPreview serial={serial} />
+                  <CheckPreview serial={serial} qrValue={serialUrl} />
 
                   <div className="memoWrap">
                     <div className="sectionTitle">Memo</div>
@@ -767,6 +770,8 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
     return vm.title;
   }, [vm]);
 
+  const serialUrl = `${origin}/testnet/${serial}`;
+
   return (
     <div className="page">
       <div className="shell">
@@ -812,7 +817,7 @@ function OnchainSerialView({ serial, origin }: { serial: string; origin: string 
 
             <div className="heroRight">
               <div className="sectionTitle">Check Preview</div>
-              <CheckPreview serial={serial} allowFallback />
+              <CheckPreview serial={serial} qrValue={serialUrl} allowFallback />
 
               <div className="memoWrap">
                 <div className="sectionTitle">Memo</div>
@@ -1292,14 +1297,15 @@ const styles = `
   }
 
   .qrOuter {
-  right: 12px;
-  top: 96px;
-  width: 124px;
-  height: 124px;
-}
+    right: 12px;
+    top: 96px;
+    width: 124px;
+    height: 124px;
+  }
 
-.qrImg {
-  width: 124px;
-  height: 124px;
+  .qrImg {
+    width: 124px;
+    height: 124px;
+  }
 }
 `;
