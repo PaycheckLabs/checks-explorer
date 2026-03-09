@@ -1135,19 +1135,21 @@ const styles = `
 
 .qrOuter {
   position: absolute;
-  right: 18px;
-  top: 118px;
-  width: 168px;
-  height: 168px;
-  background: transparent;
+  right: 24px;
+  top: 132px;
+  width: 118px;
+  height: 118px;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .qrImg {
-  width: 168px;
-  height: 168px;
+  width: 104px;
+  height: 104px;
   display: block;
   border-radius: 0;
 }
@@ -1297,15 +1299,16 @@ const styles = `
   }
 
   .qrOuter {
-    right: 12px;
-    top: 96px;
-    width: 124px;
-    height: 124px;
-  }
+  right: 12px;
+  top: 92px;
+  width: 92px;
+  height: 92px;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 5px;
+}
 
-  .qrImg {
-    width: 124px;
-    height: 124px;
-  }
+.qrImg {
+  width: 80px;
+  height: 80px;
 }
 `;
